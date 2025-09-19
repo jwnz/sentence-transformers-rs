@@ -1,5 +1,9 @@
 use thiserror::Error;
 
+use crate::transformers::{
+    TransformerLoadError, TransformerOpsForwardError, TransformerOpsTokenizeError,
+};
+
 #[derive(Debug, Error)]
 pub enum SentenceTransformerBuilderError {
     #[error("Device must be specified")]
@@ -28,6 +32,12 @@ pub enum SentenceTransformerBuilderError {
 
     #[error("DenseError: {0}")]
     DenseError(#[from] DenseError),
+
+    #[error("TransformerLoadError: {0}")]
+    TransformerLoadError(#[from] TransformerLoadError),
+
+    #[error("LoadConfigError: {0}")]
+    LoadConfigError(#[from] LoadConfigError),
 }
 
 #[derive(Debug, Error)]
@@ -88,6 +98,12 @@ pub enum EmbedError {
 
     #[error("NormalizeError({0})")]
     NormalizeError(#[from] NormalizeError),
+
+    #[error("TransformerOpsTokenizeError({0})")]
+    TransformerOpsTokenizeError(#[from] TransformerOpsTokenizeError),
+
+    #[error("TransformerOpsForwardError({0})")]
+    TransformerOpsForwardError(#[from] TransformerOpsForwardError),
 }
 
 #[derive(Debug, Error)]

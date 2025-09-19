@@ -1,12 +1,14 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, marker::PhantomData};
 
 use candle_core::Device;
 use serde_json;
 use tokenizers::{Tokenizer, TruncationParams};
 
 use crate::{
+    config,
     models::bert::{BertModel, Config, DTYPE},
-    transformers::Transformer,
+    transformers::{self, Transformer, TransformerLoad, TransformerOps},
+    utils::load_config,
 };
 
 use super::{
@@ -15,7 +17,7 @@ use super::{
     error::{EmbedError, SentenceTransformerBuilderError},
     normalize::Normalize,
     pooling::{PoolingConfig, PoolingStrategy},
-    utils::{download_hf_hub_file, fast_token_based_batching, load_safetensors},
+    utils::{download_hf_hub_file, load_safetensors},
 };
 
 const DEFAULT_BATCH_SIZE: usize = 2048;
@@ -50,7 +52,7 @@ impl fmt::Display for Which {
     }
 }
 
-pub struct SentenceTransformerBuilder {
+pub struct SentenceTransformerBuilder<'a, T: TransformerLoad> {
     model_id: String,
     with_safetensors: bool,
     with_normalization: bool,
@@ -58,9 +60,10 @@ pub struct SentenceTransformerBuilder {
     device: Option<Device>,
     pooling_path: Option<String>,
     dense_paths: Vec<String>,
+    phantom: PhantomData<&'a T>,
 }
 
-impl SentenceTransformerBuilder {
+impl<'a, T: TransformerLoad> SentenceTransformerBuilder<'a, T> {
     pub fn new(model_id: impl AsRef<str>) -> Self {
         Self {
             model_id: model_id.as_ref().to_string(),
@@ -70,12 +73,13 @@ impl SentenceTransformerBuilder {
             device: None,
             pooling_path: None,
             dense_paths: vec![],
+            phantom: PhantomData,
         }
     }
 
-    pub fn with_sentence_transformer(model: &Which) -> SentenceTransformerBuilder {
+    pub fn with_sentence_transformer(model: &Which) -> SentenceTransformerBuilder<T> {
         match model {
-            Which::LaBSE => SentenceTransformerBuilder::new(model.to_string())
+            Which::LaBSE => SentenceTransformerBuilder::<T>::new(model.to_string())
                 .with_safetensors()
                 .with_normalization()
                 .with_pooling("1_Pooling".to_string())
@@ -94,37 +98,37 @@ impl SentenceTransformerBuilder {
         }
     }
 
-    pub fn batch_size(mut self, batch_size: usize) -> SentenceTransformerBuilder {
+    pub fn batch_size(mut self, batch_size: usize) -> SentenceTransformerBuilder<'a, T> {
         self.batch_size = batch_size;
         self
     }
 
-    pub fn with_safetensors(mut self) -> SentenceTransformerBuilder {
+    pub fn with_safetensors(mut self) -> SentenceTransformerBuilder<'a, T> {
         self.with_safetensors = true;
         self
     }
 
-    pub fn with_normalization(mut self) -> SentenceTransformerBuilder {
+    pub fn with_normalization(mut self) -> SentenceTransformerBuilder<'a, T> {
         self.with_normalization = true;
         self
     }
 
-    pub fn with_device(mut self, device: &Device) -> SentenceTransformerBuilder {
+    pub fn with_device(mut self, device: &Device) -> SentenceTransformerBuilder<'a, T> {
         self.device = Some(device.clone());
         self
     }
 
-    pub fn with_pooling(mut self, pooling: String) -> SentenceTransformerBuilder {
+    pub fn with_pooling(mut self, pooling: String) -> SentenceTransformerBuilder<'a, T> {
         self.pooling_path = Some(pooling);
         self
     }
 
-    pub fn with_dense(mut self, dense_path: String) -> SentenceTransformerBuilder {
+    pub fn with_dense(mut self, dense_path: String) -> SentenceTransformerBuilder<'a, T> {
         self.dense_paths.push(dense_path);
         self
     }
 
-    pub fn build(self) -> Result<SentenceTransformer, SentenceTransformerBuilderError> {
+    pub fn build(self) -> Result<SentenceTransformer<T>, SentenceTransformerBuilderError> {
         // Device must be specified
         let device = self
             .device
@@ -138,29 +142,12 @@ impl SentenceTransformerBuilder {
 
         // load the model's hf_hub repo config
         let config_filename = download_hf_hub_file(&self.model_id, "config.json")?;
-        let model_config =
-            serde_json::from_str::<ModelConfig>(&std::fs::read_to_string(&config_filename)?)?;
-
-        // Load the transformer model config
-        let config = serde_json::from_str::<Config>(&std::fs::read_to_string(&config_filename)?)?;
+        let model_config = load_config::<ModelConfig>(&config_filename)?;
 
         // Load the sbert config
         let sbert_config_filename =
             download_hf_hub_file(&self.model_id, "sentence_bert_config.json")?;
-        let sbert_config = serde_json::from_str::<SentenceBertConfig>(&std::fs::read_to_string(
-            &sbert_config_filename,
-        )?)?;
-
-        // Load the Tokenizer
-        let tokenizer_filename = download_hf_hub_file(&self.model_id, "tokenizer.json")?;
-        let mut tokenizer = Tokenizer::from_file(tokenizer_filename)?;
-        tokenizer.with_truncation(Some(TruncationParams {
-            max_length: sbert_config.max_seq_length,
-            strategy: tokenizers::TruncationStrategy::LongestFirst,
-            direction: tokenizers::TruncationDirection::Right,
-            stride: 0,
-        }))?;
-        tokenizer.with_padding(None);
+        let sbert_config = load_config::<SentenceBertConfig>(&sbert_config_filename)?;
 
         // Load the transformer
         let vb = if self.with_safetensors {
@@ -170,13 +157,18 @@ impl SentenceTransformerBuilder {
             let weights_filename = download_hf_hub_file(&self.model_id, "pytorch_model.bin")?;
             candle_nn::VarBuilder::from_pth(&weights_filename, DTYPE, &device)?
         };
-        let bert = BertModel::load(vb, &config)?;
+
+        let tokenizer_filename = download_hf_hub_file(&self.model_id, "tokenizer.json")?;
+        let transformer = Transformer::load(
+            vb,
+            &config_filename,
+            &tokenizer_filename,
+            sbert_config.max_seq_length,
+        )?;
 
         // load the pooler
         let pooling_config_filename = download_hf_hub_file(&self.model_id, &pooling_method)?;
-        let pooling_config = serde_json::from_str::<PoolingConfig>(&std::fs::read_to_string(
-            &pooling_config_filename,
-        )?)?;
+        let pooling_config = load_config::<PoolingConfig>(&pooling_config_filename)?;
         let pooler = PoolingStrategy::from_config(pooling_config);
 
         // Load the dense layers
@@ -184,9 +176,7 @@ impl SentenceTransformerBuilder {
         for dense_path in self.dense_paths.iter() {
             let dense_config_filename =
                 download_hf_hub_file(&self.model_id, &format!("{dense_path}/config.json"))?;
-            let dense_config = serde_json::from_str::<DenseConfig>(&std::fs::read_to_string(
-                dense_config_filename,
-            )?)?;
+            let dense_config = load_config::<DenseConfig>(&dense_config_filename)?;
 
             let dense_vb = if self.with_safetensors {
                 let weights_filename = download_hf_hub_file(
@@ -217,8 +207,7 @@ impl SentenceTransformerBuilder {
             model_config: model_config,
             batch_size: self.batch_size,
             device: device,
-            tokenizer: tokenizer,
-            transformer: bert,
+            transformer: transformer,
             pooler: pooler,
             dense_layers: dense_layers,
             normalize: normalize,
@@ -226,42 +215,43 @@ impl SentenceTransformerBuilder {
     }
 }
 
-pub struct SentenceTransformer {
+pub struct SentenceTransformer<T: TransformerLoad> {
     model_config: ModelConfig,
     batch_size: usize,
     device: Device,
-    tokenizer: Tokenizer,
-    transformer: BertModel,
+    transformer: Transformer<T>,
     pooler: PoolingStrategy,
     dense_layers: Vec<Dense>,
     normalize: Option<Normalize>,
 }
 
-impl SentenceTransformer {
+impl<T> SentenceTransformer<T>
+where
+    T: TransformerLoad,
+    Transformer<T>: TransformerOps<T>,
+{
     pub fn embed(&self, lines: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
         let mut embeddings: Vec<Vec<f32>> = vec![];
 
-        let mut token_ids = self
-            .tokenizer
-            .encode_batch(lines.to_vec(), true)?
-            .iter()
-            .map(|enc| enc.get_ids().to_vec())
-            .collect::<Vec<Vec<u32>>>();
+        // let mut token_ids = self
+        //     .tokenizer
+        //     .encode_batch(lines.to_vec(), true)?
+        //     .iter()
+        //     .map(|enc| enc.get_ids().to_vec())
+        //     .collect::<Vec<Vec<u32>>>();
 
-        let pad_token = self
-            .model_config
-            .pad_token_id
-            .unwrap_or(DEFAULT_PAD_TOKEN_ID);
-        let batches =
-            fast_token_based_batching(&mut token_ids, pad_token, self.batch_size, &self.device)?;
+        // let pad_token = self
+        //     .model_config
+        //     .pad_token_id
+        //     .unwrap_or(DEFAULT_PAD_TOKEN_ID);
+        // let batches =
+        //     fast_token_based_batching(&mut token_ids, pad_token, self.batch_size, &self.device)?;
+
+        let batches = self.transformer.tokenize(lines, self.batch_size)?;
 
         for batch in batches.batches.iter() {
             // transformer
-            let mut batch_embeddings = self.transformer.forward(
-                &batch.input_ids,
-                &batch.token_type_ids,
-                Some(&batch.attention_mask),
-            )?;
+            let mut batch_embeddings = self.transformer.forward(&batch)?;
 
             // pool
             batch_embeddings = self

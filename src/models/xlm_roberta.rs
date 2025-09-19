@@ -394,121 +394,121 @@ impl XLMRobertaModel {
     }
 }
 
-struct XLMRobertaLMHead {
-    dense: Linear,
-    layer_norm: LayerNorm,
-}
+// struct XLMRobertaLMHead {
+//     dense: Linear,
+//     layer_norm: LayerNorm,
+// }
 
-impl XLMRobertaLMHead {
-    fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
-        let dense = linear(cfg.hidden_size, cfg.hidden_size, vb.pp("dense"))?;
-        let layer_norm =
-            candle_nn::layer_norm(cfg.hidden_size, cfg.layer_norm_eps, vb.pp("layer_norm"))?;
-        Ok(Self { dense, layer_norm })
-    }
+// impl XLMRobertaLMHead {
+//     fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+//         let dense = linear(cfg.hidden_size, cfg.hidden_size, vb.pp("dense"))?;
+//         let layer_norm =
+//             candle_nn::layer_norm(cfg.hidden_size, cfg.layer_norm_eps, vb.pp("layer_norm"))?;
+//         Ok(Self { dense, layer_norm })
+//     }
 
-    fn forward(&self, hidden_states: &Tensor, shared_embeddings: &Tensor) -> Result<Tensor> {
-        let hidden_states = self.dense.forward(hidden_states)?;
-        let hidden_states = candle_nn::Activation::Gelu.forward(&hidden_states)?;
-        let hidden_states = self.layer_norm.forward(&hidden_states)?;
-        let hidden_states = hidden_states.broadcast_matmul(shared_embeddings)?;
-        Ok(hidden_states)
-    }
-}
+//     fn forward(&self, hidden_states: &Tensor, shared_embeddings: &Tensor) -> Result<Tensor> {
+//         let hidden_states = self.dense.forward(hidden_states)?;
+//         let hidden_states = candle_nn::Activation::Gelu.forward(&hidden_states)?;
+//         let hidden_states = self.layer_norm.forward(&hidden_states)?;
+//         let hidden_states = hidden_states.broadcast_matmul(shared_embeddings)?;
+//         Ok(hidden_states)
+//     }
+// }
 
-pub struct XLMRobertaForMaskedLM {
-    roberta: XLMRobertaModel,
-    lm_head: XLMRobertaLMHead,
-}
+// pub struct XLMRobertaForMaskedLM {
+//     roberta: XLMRobertaModel,
+//     lm_head: XLMRobertaLMHead,
+// }
 
-impl XLMRobertaForMaskedLM {
-    pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
-        let roberta = XLMRobertaModel::load(vb.pp("roberta"), cfg)?;
-        let lm_head = XLMRobertaLMHead::new(cfg, vb.pp("lm_head"))?;
-        Ok(Self { roberta, lm_head })
-    }
+// impl XLMRobertaForMaskedLM {
+//     pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+//         let roberta = XLMRobertaModel::load(vb.pp("roberta"), cfg)?;
+//         let lm_head = XLMRobertaLMHead::new(cfg, vb.pp("lm_head"))?;
+//         Ok(Self { roberta, lm_head })
+//     }
 
-    pub fn forward(
-        &self,
-        input_ids: &Tensor,
-        attention_mask: &Tensor,
-        token_type_ids: &Tensor,
-        past_key_value: Option<(&Tensor, &Tensor)>,
-        encoder_hidden_states: Option<&Tensor>,
-        encoder_attention_mask: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let hidden_states = self.roberta.forward(
-            input_ids,
-            attention_mask,
-            token_type_ids,
-            past_key_value,
-            encoder_hidden_states,
-            encoder_attention_mask,
-        )?;
-        let lm_logits = self.lm_head.forward(
-            &hidden_states,
-            &self
-                .roberta
-                .embeddings
-                .word_embeddings
-                .embeddings()
-                .t()?
-                .unsqueeze(0)?,
-        )?;
-        Ok(lm_logits)
-    }
-}
+//     pub fn forward(
+//         &self,
+//         input_ids: &Tensor,
+//         attention_mask: &Tensor,
+//         token_type_ids: &Tensor,
+//         past_key_value: Option<(&Tensor, &Tensor)>,
+//         encoder_hidden_states: Option<&Tensor>,
+//         encoder_attention_mask: Option<&Tensor>,
+//     ) -> Result<Tensor> {
+//         let hidden_states = self.roberta.forward(
+//             input_ids,
+//             attention_mask,
+//             token_type_ids,
+//             past_key_value,
+//             encoder_hidden_states,
+//             encoder_attention_mask,
+//         )?;
+//         let lm_logits = self.lm_head.forward(
+//             &hidden_states,
+//             &self
+//                 .roberta
+//                 .embeddings
+//                 .word_embeddings
+//                 .embeddings()
+//                 .t()?
+//                 .unsqueeze(0)?,
+//         )?;
+//         Ok(lm_logits)
+//     }
+// }
 
-struct XLMRobertaClassificationHead {
-    dense: Linear,
-    out_proj: Linear,
-}
+// struct XLMRobertaClassificationHead {
+//     dense: Linear,
+//     out_proj: Linear,
+// }
 
-impl XLMRobertaClassificationHead {
-    fn new(num_labels: usize, cfg: &Config, vb: VarBuilder) -> Result<Self> {
-        let dense = linear(cfg.hidden_size, cfg.hidden_size, vb.pp("dense"))?;
-        let out_proj = linear(cfg.hidden_size, num_labels, vb.pp("out_proj"))?;
-        Ok(Self { dense, out_proj })
-    }
+// impl XLMRobertaClassificationHead {
+//     fn new(num_labels: usize, cfg: &Config, vb: VarBuilder) -> Result<Self> {
+//         let dense = linear(cfg.hidden_size, cfg.hidden_size, vb.pp("dense"))?;
+//         let out_proj = linear(cfg.hidden_size, num_labels, vb.pp("out_proj"))?;
+//         Ok(Self { dense, out_proj })
+//     }
 
-    fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
-        let cls_states = hidden_states.get_on_dim(1, 0)?.contiguous()?;
-        let hidden_states = self.dense.forward(&cls_states)?;
-        // The activation used in the classification head is tanh, as per the original
-        // implementation.
-        // https://github.com/huggingface/transformers/blob/6e3063422c4b1c014aa60c32b9254fd2902f0f28/src/transformers/models/xlm_roberta/modeling_xlm_roberta.py#L1454
-        let hidden_states = self.out_proj.forward(&hidden_states.tanh()?)?;
-        Ok(hidden_states)
-    }
-}
+//     fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
+//         let cls_states = hidden_states.get_on_dim(1, 0)?.contiguous()?;
+//         let hidden_states = self.dense.forward(&cls_states)?;
+//         // The activation used in the classification head is tanh, as per the original
+//         // implementation.
+//         // https://github.com/huggingface/transformers/blob/6e3063422c4b1c014aa60c32b9254fd2902f0f28/src/transformers/models/xlm_roberta/modeling_xlm_roberta.py#L1454
+//         let hidden_states = self.out_proj.forward(&hidden_states.tanh()?)?;
+//         Ok(hidden_states)
+//     }
+// }
 
-pub struct XLMRobertaForSequenceClassification {
-    roberta: XLMRobertaModel,
-    classifier: XLMRobertaClassificationHead,
-}
+// pub struct XLMRobertaForSequenceClassification {
+//     roberta: XLMRobertaModel,
+//     classifier: XLMRobertaClassificationHead,
+// }
 
-impl XLMRobertaForSequenceClassification {
-    pub fn new(num_labels: usize, cfg: &Config, vb: VarBuilder) -> Result<Self> {
-        let roberta = XLMRobertaModel::load(vb.pp("roberta"), cfg)?;
-        let classifier = XLMRobertaClassificationHead::new(num_labels, cfg, vb.pp("classifier"))?;
-        Ok(Self {
-            roberta,
-            classifier,
-        })
-    }
+// impl XLMRobertaForSequenceClassification {
+//     pub fn new(num_labels: usize, cfg: &Config, vb: VarBuilder) -> Result<Self> {
+//         let roberta = XLMRobertaModel::load(vb.pp("roberta"), cfg)?;
+//         let classifier = XLMRobertaClassificationHead::new(num_labels, cfg, vb.pp("classifier"))?;
+//         Ok(Self {
+//             roberta,
+//             classifier,
+//         })
+//     }
 
-    pub fn forward(
-        &self,
-        input_ids: &Tensor,
-        attention_mask: &Tensor,
-        token_type_ids: &Tensor,
-    ) -> Result<Tensor> {
-        let hidden_states =
-            self.roberta
-                .forward(input_ids, attention_mask, token_type_ids, None, None, None)?;
-        self.classifier.forward(&hidden_states)
-    }
-}
+//     pub fn forward(
+//         &self,
+//         input_ids: &Tensor,
+//         attention_mask: &Tensor,
+//         token_type_ids: &Tensor,
+//     ) -> Result<Tensor> {
+//         let hidden_states =
+//             self.roberta
+//                 .forward(input_ids, attention_mask, token_type_ids, None, None, None)?;
+//         self.classifier.forward(&hidden_states)
+//     }
+// }
 
 fn prepare_4d_attention_mask(
     mask: &Tensor,
