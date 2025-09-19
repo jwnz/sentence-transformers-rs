@@ -10,7 +10,6 @@ repository = "https://github.com/jwnz/sentence-transformers-rs"
 [dependencies]
 candle-core = "0.9.1"
 candle-nn = "0.9.1"
-candle-transformers = "0.9.1"
 hf-hub = "0.4.3"
 tokenizers = "0.14"
 serde = { version = "1.0", features = ["derive"] }
@@ -25,14 +24,9 @@ rand_distr = "0.5.1"
 
 [features]
 default = []
-mkl = ["candle-nn/mkl", "candle-core/mkl", "candle-transformers/mkl"]
-cuda = [
-    "candle-core/cuda",
-    "candle-core/cudnn",
-    "candle-nn/cuda",
-    "candle-transformers/cuda",
-]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+mkl = ["candle-nn/mkl", "candle-core/mkl"]
+cuda = ["candle-core/cuda", "candle-core/cudnn", "candle-nn/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal"]
 
 [[bench]]
 name = "bench"

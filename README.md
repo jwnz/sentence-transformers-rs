@@ -4,7 +4,10 @@ Rust port of [sentence-transformers](https://github.com/UKPLab/sentence-transfor
 
 ## Supported Models
 
-The following models are supported by default:
+
+<details>
+    <summary>The following models are supported by default (click to expand):</summary>
+
 - [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
 - [sentence-transformers/all-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2)
 - [sentence-transformers/paraphrase-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/paraphrase-MiniLM-L6-v2)
@@ -12,6 +15,9 @@ The following models are supported by default:
 - [sentence-transformers/LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
 
 All models not listed above that are based on the `BertModel` architecture should also work with some additional boilerplate; see [Usage: Other Models](#other-models) below.
+
+</details>
+
 
 ## Usage
 

@@ -104,3 +104,12 @@ pub enum CosineSimilarityError {
     #[error("Cosine similarity of vectors of different lengths (lhs: {lhs:?}, rhs: {rhs:?}) is undefined")]
     DifferentLenVectorSimUndefined { lhs: usize, rhs: usize },
 }
+
+#[derive(Error, Debug)]
+pub enum LoadConfigError {
+    #[error("IO Error: {0}")]
+    StdIOError(#[from] std::io::Error),
+
+    #[error("SerdeJsonError: {0}")]
+    SerdeJsonError(#[from] serde_json::Error),
+}

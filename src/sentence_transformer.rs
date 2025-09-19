@@ -1,9 +1,13 @@
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use candle_core::Device;
-use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 use serde_json;
 use tokenizers::{Tokenizer, TruncationParams};
+
+use crate::{
+    models::bert::{BertModel, Config, DTYPE},
+    transformers::Transformer,
+};
 
 use super::{
     config::{ModelConfig, SentenceBertConfig},
