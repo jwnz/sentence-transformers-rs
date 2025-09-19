@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::{
     error::LoadConfigError,
-    models::{distilbert::DistilBertModel, xlm_roberta::XLMRobertaModel},
+    models::{bert::BertModel, distilbert::DistilBertModel, xlm_roberta::XLMRobertaModel},
     utils::load_config,
 };
 
@@ -37,9 +37,9 @@ pub trait TransformerLoad: Sized {
     ) -> Result<Self, Err>;
 }
 
-impl TransformerLoad for bert::BertModel {
+impl TransformerLoad for BertModel {
     fn load_transformer(vb: VarBuilder, config_filename: &Path) -> Result<Self, Err> {
-        Ok(bert::BertModel::load(vb, &load_config(config_filename)?)?)
+        Ok(BertModel::load(vb, &load_config(config_filename)?)?)
     }
 }
 
