@@ -11,7 +11,7 @@ The following models are supported by default:
 - [sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2)
 - [sentence-transformers/LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
 
-All models not listed above, but based on the `BertModel` architecture should also work, but require some more boilerplate; see [Usage: Other Models](#other-models) below.
+All models not listed above that are based on the `BertModel` architecture should also work with some additional boilerplate; see [Usage: Other Models](#other-models) below.
 
 ## Usage
 
