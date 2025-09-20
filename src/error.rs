@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::transformers::TransformerError;
+
 #[derive(Debug, Error)]
 pub enum SentenceTransformerBuilderError {
     #[error("Device must be specified")]
@@ -28,6 +30,12 @@ pub enum SentenceTransformerBuilderError {
 
     #[error("DenseError: {0}")]
     DenseError(#[from] DenseError),
+
+    #[error("LoadConfigError: {0}")]
+    LoadConfigError(#[from] LoadConfigError),
+
+    #[error("TransformerError: {0}")]
+    TransformerError(#[from] TransformerError),
 }
 
 #[derive(Debug, Error)]
@@ -88,6 +96,9 @@ pub enum EmbedError {
 
     #[error("NormalizeError({0})")]
     NormalizeError(#[from] NormalizeError),
+
+    #[error("TransformerError: {0}")]
+    TransformerError(#[from] TransformerError),
 }
 
 #[derive(Debug, Error)]
@@ -103,4 +114,13 @@ pub enum CosineSimilarityError {
 
     #[error("Cosine similarity of vectors of different lengths (lhs: {lhs:?}, rhs: {rhs:?}) is undefined")]
     DifferentLenVectorSimUndefined { lhs: usize, rhs: usize },
+}
+
+#[derive(Error, Debug)]
+pub enum LoadConfigError {
+    #[error("IO Error: {0}")]
+    StdIOError(#[from] std::io::Error),
+
+    #[error("SerdeJsonError: {0}")]
+    SerdeJsonError(#[from] serde_json::Error),
 }

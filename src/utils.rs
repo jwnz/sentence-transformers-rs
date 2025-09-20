@@ -2,11 +2,18 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::var_builder::{SimpleBackend, VarBuilderArgs};
 use hf_hub::api::sync::Api;
 
-use std::path::PathBuf;
+use crate::error::LoadConfigError;
+use std::path::{Path, PathBuf};
 
 use super::error::{
     CosineSimilarityError, DownloadHFModelError, FastTokenBatchError, LoadSafeTensorError,
 };
+
+/// Load a json config file into some deserializable struct
+pub fn load_config<T: for<'a> serde::Deserialize<'a>>(path: &Path) -> Result<T, LoadConfigError> {
+    let json = std::fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&json)?)
+}
 
 /// Calculate the cosine similarity between two float slices
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> Result<f32, CosineSimilarityError> {

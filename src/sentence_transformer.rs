@@ -1,17 +1,20 @@
-use std::fmt;
+use std::{fmt, marker::PhantomData};
 
 use candle_core::Device;
-use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 use serde_json;
+use strum_macros::Display;
 use tokenizers::{Tokenizer, TruncationParams};
+
+use crate::{transformers::Transformer, utils::load_config};
 
 use super::{
     config::{ModelConfig, SentenceBertConfig},
     dense::{Dense, DenseConfig},
     error::{EmbedError, SentenceTransformerBuilderError},
+    models::bert::DTYPE,
     normalize::Normalize,
     pooling::{PoolingConfig, PoolingStrategy},
-    utils::{download_hf_hub_file, fast_token_based_batching, load_safetensors},
+    utils::{download_hf_hub_file, load_safetensors},
 };
 
 const DEFAULT_BATCH_SIZE: usize = 2048;
@@ -19,31 +22,22 @@ const DEFAULT_WITH_SAFETENSORS: bool = false;
 const DEFAULT_WITH_NORMALIZE: bool = false;
 const DEFAULT_PAD_TOKEN_ID: usize = 0;
 
+#[derive(Display)]
 pub enum Which {
+    #[strum(serialize = "sentence-transformers/all-MiniLM-L6-v2")]
     AllMiniLML6v2,
+    #[strum(serialize = "sentence-transformers/all-MiniLM-L12-v2")]
     AllMiniLML12v2,
+    #[strum(serialize = "sentence-transformers/paraphrase-MiniLM-L6-v2")]
     ParaphraseMiniLML6v2,
+    #[strum(serialize = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")]
     ParaphraseMultilingualMiniLML12v2,
+    #[strum(serialize = "sentence-transformers/LaBSE")]
     LaBSE,
-}
-
-impl fmt::Display for Which {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Which::AllMiniLML6v2 => write!(f, "sentence-transformers/all-MiniLM-L6-v2"),
-            Which::AllMiniLML12v2 => write!(f, "sentence-transformers/all-MiniLM-L12-v2"),
-            Which::ParaphraseMiniLML6v2 => {
-                write!(f, "sentence-transformers/paraphrase-MiniLM-L6-v2")
-            }
-            Which::ParaphraseMultilingualMiniLML12v2 => {
-                write!(
-                    f,
-                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-                )
-            }
-            Which::LaBSE => write!(f, "sentence-transformers/LaBSE"),
-        }
-    }
+    #[strum(serialize = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")]
+    ParaphraseMultilingualMpnetBaseV2,
+    #[strum(serialize = "sentence-transformers/distiluse-base-multilingual-cased-v2")]
+    DistiluseBaseMultilingualCasedV2,
 }
 
 pub struct SentenceTransformerBuilder {
@@ -70,22 +64,38 @@ impl SentenceTransformerBuilder {
     }
 
     pub fn with_sentence_transformer(model: &Which) -> SentenceTransformerBuilder {
+        let model_string = model.to_string();
         match model {
-            Which::LaBSE => SentenceTransformerBuilder::new(model.to_string())
+            // Pooling and a single dense with norm
+            Which::LaBSE => SentenceTransformerBuilder::new(model_string)
                 .with_safetensors()
                 .with_normalization()
-                .with_pooling("1_Pooling".to_string())
-                .with_dense("2_Dense".to_string()),
-            Which::ParaphraseMultilingualMiniLML12v2 | Which::ParaphraseMiniLML6v2 => {
-                SentenceTransformerBuilder::new(model.to_string())
+                .with_pooling("1_Pooling")
+                .with_dense("2_Dense"),
+
+            // Pooling and a single dense with no norm
+            Which::DistiluseBaseMultilingualCasedV2 => {
+                SentenceTransformerBuilder::new(model_string)
                     .with_safetensors()
-                    .with_pooling("1_Pooling".to_string())
+                    .with_pooling("1_Pooling")
+                    .with_dense("2_Dense")
             }
+
+            // Has pooling, but not norm
+            Which::ParaphraseMultilingualMiniLML12v2
+            | Which::ParaphraseMiniLML6v2
+            | Which::ParaphraseMultilingualMpnetBaseV2 => {
+                SentenceTransformerBuilder::new(model_string)
+                    .with_safetensors()
+                    .with_pooling("1_Pooling")
+            }
+
+            // Pooling with norm
             Which::AllMiniLML6v2 | Which::AllMiniLML12v2 => {
-                SentenceTransformerBuilder::new(model.to_string())
+                SentenceTransformerBuilder::new(model_string)
                     .with_safetensors()
                     .with_normalization()
-                    .with_pooling("1_Pooling".to_string())
+                    .with_pooling("1_Pooling")
             }
         }
     }
@@ -110,13 +120,13 @@ impl SentenceTransformerBuilder {
         self
     }
 
-    pub fn with_pooling(mut self, pooling: String) -> SentenceTransformerBuilder {
-        self.pooling_path = Some(pooling);
+    pub fn with_pooling(mut self, pooling: &str) -> SentenceTransformerBuilder {
+        self.pooling_path = Some(pooling.to_string());
         self
     }
 
-    pub fn with_dense(mut self, dense_path: String) -> SentenceTransformerBuilder {
-        self.dense_paths.push(dense_path);
+    pub fn with_dense(mut self, dense_path: &str) -> SentenceTransformerBuilder {
+        self.dense_paths.push(dense_path.to_string());
         self
     }
 
@@ -134,29 +144,12 @@ impl SentenceTransformerBuilder {
 
         // load the model's hf_hub repo config
         let config_filename = download_hf_hub_file(&self.model_id, "config.json")?;
-        let model_config =
-            serde_json::from_str::<ModelConfig>(&std::fs::read_to_string(&config_filename)?)?;
-
-        // Load the transformer model config
-        let config = serde_json::from_str::<Config>(&std::fs::read_to_string(&config_filename)?)?;
+        let model_config = load_config::<ModelConfig>(&config_filename)?;
 
         // Load the sbert config
         let sbert_config_filename =
             download_hf_hub_file(&self.model_id, "sentence_bert_config.json")?;
-        let sbert_config = serde_json::from_str::<SentenceBertConfig>(&std::fs::read_to_string(
-            &sbert_config_filename,
-        )?)?;
-
-        // Load the Tokenizer
-        let tokenizer_filename = download_hf_hub_file(&self.model_id, "tokenizer.json")?;
-        let mut tokenizer = Tokenizer::from_file(tokenizer_filename)?;
-        tokenizer.with_truncation(Some(TruncationParams {
-            max_length: sbert_config.max_seq_length,
-            strategy: tokenizers::TruncationStrategy::LongestFirst,
-            direction: tokenizers::TruncationDirection::Right,
-            stride: 0,
-        }))?;
-        tokenizer.with_padding(None);
+        let sbert_config = load_config::<SentenceBertConfig>(&sbert_config_filename)?;
 
         // Load the transformer
         let vb = if self.with_safetensors {
@@ -166,13 +159,18 @@ impl SentenceTransformerBuilder {
             let weights_filename = download_hf_hub_file(&self.model_id, "pytorch_model.bin")?;
             candle_nn::VarBuilder::from_pth(&weights_filename, DTYPE, &device)?
         };
-        let bert = BertModel::load(vb, &config)?;
+
+        let tokenizer_filename = download_hf_hub_file(&self.model_id, "tokenizer.json")?;
+        let transformer = Transformer::load(
+            vb,
+            &config_filename,
+            &tokenizer_filename,
+            sbert_config.max_seq_length,
+        )?;
 
         // load the pooler
         let pooling_config_filename = download_hf_hub_file(&self.model_id, &pooling_method)?;
-        let pooling_config = serde_json::from_str::<PoolingConfig>(&std::fs::read_to_string(
-            &pooling_config_filename,
-        )?)?;
+        let pooling_config = load_config::<PoolingConfig>(&pooling_config_filename)?;
         let pooler = PoolingStrategy::from_config(pooling_config);
 
         // Load the dense layers
@@ -180,9 +178,7 @@ impl SentenceTransformerBuilder {
         for dense_path in self.dense_paths.iter() {
             let dense_config_filename =
                 download_hf_hub_file(&self.model_id, &format!("{dense_path}/config.json"))?;
-            let dense_config = serde_json::from_str::<DenseConfig>(&std::fs::read_to_string(
-                dense_config_filename,
-            )?)?;
+            let dense_config = load_config::<DenseConfig>(&dense_config_filename)?;
 
             let dense_vb = if self.with_safetensors {
                 let weights_filename = download_hf_hub_file(
@@ -213,8 +209,7 @@ impl SentenceTransformerBuilder {
             model_config: model_config,
             batch_size: self.batch_size,
             device: device,
-            tokenizer: tokenizer,
-            transformer: bert,
+            transformer: transformer,
             pooler: pooler,
             dense_layers: dense_layers,
             normalize: normalize,
@@ -226,8 +221,7 @@ pub struct SentenceTransformer {
     model_config: ModelConfig,
     batch_size: usize,
     device: Device,
-    tokenizer: Tokenizer,
-    transformer: BertModel,
+    transformer: Transformer,
     pooler: PoolingStrategy,
     dense_layers: Vec<Dense>,
     normalize: Option<Normalize>,
@@ -237,27 +231,18 @@ impl SentenceTransformer {
     pub fn embed(&self, lines: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
         let mut embeddings: Vec<Vec<f32>> = vec![];
 
-        let mut token_ids = self
-            .tokenizer
-            .encode_batch(lines.to_vec(), true)?
-            .iter()
-            .map(|enc| enc.get_ids().to_vec())
-            .collect::<Vec<Vec<u32>>>();
-
-        let pad_token = self
-            .model_config
-            .pad_token_id
-            .unwrap_or(DEFAULT_PAD_TOKEN_ID);
-        let batches =
-            fast_token_based_batching(&mut token_ids, pad_token, self.batch_size, &self.device)?;
+        let batches = self.transformer.tokenize(
+            lines,
+            &self.device,
+            self.model_config
+                .pad_token_id
+                .unwrap_or(DEFAULT_PAD_TOKEN_ID),
+            self.batch_size,
+        )?;
 
         for batch in batches.batches.iter() {
             // transformer
-            let mut batch_embeddings = self.transformer.forward(
-                &batch.input_ids,
-                &batch.token_type_ids,
-                Some(&batch.attention_mask),
-            )?;
+            let mut batch_embeddings = self.transformer.forward(batch)?;
 
             // pool
             batch_embeddings = self
