@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Other Models
 
-You can also use the builder the model yourself if it's not in the supported list of pre-defined models, if the architecture is based on BertModel. If you're not sure, check the `"architectures"` field in the repo's [`config.json`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/main/config.json) file.
+You can also build models that aren’t in the supported list, as long as the architecture is based on `BertModel`, `XLMRobertaModel`, or `DistilBertModel` . If you're not sure, check the `"architectures"` field in the repo's [`config.json`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/main/config.json) file.
 
 ```Rust
 use sentence_transformers_rs::{
@@ -90,3 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## Todo
+
+- [ ] Support `MPNetMaskedLM` architecture
+- [ ] Support `Gemma3TextModel` architecture
