@@ -2,19 +2,16 @@ use std::{fmt, marker::PhantomData};
 
 use candle_core::Device;
 use serde_json;
+use strum_macros::Display;
 use tokenizers::{Tokenizer, TruncationParams};
 
-use crate::{
-    config,
-    models::bert::{BertModel, Config, DTYPE},
-    transformers::{self, Transformer, TransformerLoad, TransformerOps},
-    utils::load_config,
-};
+use crate::{transformers::Transformer, utils::load_config};
 
 use super::{
     config::{ModelConfig, SentenceBertConfig},
     dense::{Dense, DenseConfig},
     error::{EmbedError, SentenceTransformerBuilderError},
+    models::bert::DTYPE,
     normalize::Normalize,
     pooling::{PoolingConfig, PoolingStrategy},
     utils::{download_hf_hub_file, load_safetensors},
@@ -25,34 +22,25 @@ const DEFAULT_WITH_SAFETENSORS: bool = false;
 const DEFAULT_WITH_NORMALIZE: bool = false;
 const DEFAULT_PAD_TOKEN_ID: usize = 0;
 
+#[derive(Display)]
 pub enum Which {
+    #[strum(serialize = "sentence-transformers/all-MiniLM-L6-v2")]
     AllMiniLML6v2,
+    #[strum(serialize = "sentence-transformers/all-MiniLM-L12-v2")]
     AllMiniLML12v2,
+    #[strum(serialize = "sentence-transformers/paraphrase-MiniLM-L6-v2")]
     ParaphraseMiniLML6v2,
+    #[strum(serialize = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")]
     ParaphraseMultilingualMiniLML12v2,
+    #[strum(serialize = "sentence-transformers/LaBSE")]
     LaBSE,
+    #[strum(serialize = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")]
+    ParaphraseMultilingualMpnetBaseV2,
+    #[strum(serialize = "sentence-transformers/distiluse-base-multilingual-cased-v2")]
+    DistiluseBaseMultilingualCasedV2,
 }
 
-impl fmt::Display for Which {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Which::AllMiniLML6v2 => write!(f, "sentence-transformers/all-MiniLM-L6-v2"),
-            Which::AllMiniLML12v2 => write!(f, "sentence-transformers/all-MiniLM-L12-v2"),
-            Which::ParaphraseMiniLML6v2 => {
-                write!(f, "sentence-transformers/paraphrase-MiniLM-L6-v2")
-            }
-            Which::ParaphraseMultilingualMiniLML12v2 => {
-                write!(
-                    f,
-                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-                )
-            }
-            Which::LaBSE => write!(f, "sentence-transformers/LaBSE"),
-        }
-    }
-}
-
-pub struct SentenceTransformerBuilder<'a, T: TransformerLoad> {
+pub struct SentenceTransformerBuilder {
     model_id: String,
     with_safetensors: bool,
     with_normalization: bool,
@@ -60,10 +48,9 @@ pub struct SentenceTransformerBuilder<'a, T: TransformerLoad> {
     device: Option<Device>,
     pooling_path: Option<String>,
     dense_paths: Vec<String>,
-    phantom: PhantomData<&'a T>,
 }
 
-impl<'a, T: TransformerLoad> SentenceTransformerBuilder<'a, T> {
+impl SentenceTransformerBuilder {
     pub fn new(model_id: impl AsRef<str>) -> Self {
         Self {
             model_id: model_id.as_ref().to_string(),
@@ -73,62 +60,77 @@ impl<'a, T: TransformerLoad> SentenceTransformerBuilder<'a, T> {
             device: None,
             pooling_path: None,
             dense_paths: vec![],
-            phantom: PhantomData,
         }
     }
 
-    pub fn with_sentence_transformer(model: &Which) -> SentenceTransformerBuilder<T> {
+    pub fn with_sentence_transformer(model: &Which) -> SentenceTransformerBuilder {
+        let model_string = model.to_string();
         match model {
-            Which::LaBSE => SentenceTransformerBuilder::<T>::new(model.to_string())
+            // Pooling and a single dense with norm
+            Which::LaBSE => SentenceTransformerBuilder::new(model_string)
                 .with_safetensors()
                 .with_normalization()
-                .with_pooling("1_Pooling".to_string())
-                .with_dense("2_Dense".to_string()),
-            Which::ParaphraseMultilingualMiniLML12v2 | Which::ParaphraseMiniLML6v2 => {
-                SentenceTransformerBuilder::new(model.to_string())
+                .with_pooling("1_Pooling")
+                .with_dense("2_Dense"),
+
+            // Pooling and a single dense with no norm
+            Which::DistiluseBaseMultilingualCasedV2 => {
+                SentenceTransformerBuilder::new(model_string)
                     .with_safetensors()
-                    .with_pooling("1_Pooling".to_string())
+                    .with_pooling("1_Pooling")
+                    .with_dense("2_Dense")
             }
+
+            // Has pooling, but not norm
+            Which::ParaphraseMultilingualMiniLML12v2
+            | Which::ParaphraseMiniLML6v2
+            | Which::ParaphraseMultilingualMpnetBaseV2 => {
+                SentenceTransformerBuilder::new(model_string)
+                    .with_safetensors()
+                    .with_pooling("1_Pooling")
+            }
+
+            // Pooling with norm
             Which::AllMiniLML6v2 | Which::AllMiniLML12v2 => {
-                SentenceTransformerBuilder::new(model.to_string())
+                SentenceTransformerBuilder::new(model_string)
                     .with_safetensors()
                     .with_normalization()
-                    .with_pooling("1_Pooling".to_string())
+                    .with_pooling("1_Pooling")
             }
         }
     }
 
-    pub fn batch_size(mut self, batch_size: usize) -> SentenceTransformerBuilder<'a, T> {
+    pub fn batch_size(mut self, batch_size: usize) -> SentenceTransformerBuilder {
         self.batch_size = batch_size;
         self
     }
 
-    pub fn with_safetensors(mut self) -> SentenceTransformerBuilder<'a, T> {
+    pub fn with_safetensors(mut self) -> SentenceTransformerBuilder {
         self.with_safetensors = true;
         self
     }
 
-    pub fn with_normalization(mut self) -> SentenceTransformerBuilder<'a, T> {
+    pub fn with_normalization(mut self) -> SentenceTransformerBuilder {
         self.with_normalization = true;
         self
     }
 
-    pub fn with_device(mut self, device: &Device) -> SentenceTransformerBuilder<'a, T> {
+    pub fn with_device(mut self, device: &Device) -> SentenceTransformerBuilder {
         self.device = Some(device.clone());
         self
     }
 
-    pub fn with_pooling(mut self, pooling: String) -> SentenceTransformerBuilder<'a, T> {
-        self.pooling_path = Some(pooling);
+    pub fn with_pooling(mut self, pooling: &str) -> SentenceTransformerBuilder {
+        self.pooling_path = Some(pooling.to_string());
         self
     }
 
-    pub fn with_dense(mut self, dense_path: String) -> SentenceTransformerBuilder<'a, T> {
-        self.dense_paths.push(dense_path);
+    pub fn with_dense(mut self, dense_path: &str) -> SentenceTransformerBuilder {
+        self.dense_paths.push(dense_path.to_string());
         self
     }
 
-    pub fn build(self) -> Result<SentenceTransformer<T>, SentenceTransformerBuilderError> {
+    pub fn build(self) -> Result<SentenceTransformer, SentenceTransformerBuilderError> {
         // Device must be specified
         let device = self
             .device
@@ -215,43 +217,32 @@ impl<'a, T: TransformerLoad> SentenceTransformerBuilder<'a, T> {
     }
 }
 
-pub struct SentenceTransformer<T: TransformerLoad> {
+pub struct SentenceTransformer {
     model_config: ModelConfig,
     batch_size: usize,
     device: Device,
-    transformer: Transformer<T>,
+    transformer: Transformer,
     pooler: PoolingStrategy,
     dense_layers: Vec<Dense>,
     normalize: Option<Normalize>,
 }
 
-impl<T> SentenceTransformer<T>
-where
-    T: TransformerLoad,
-    Transformer<T>: TransformerOps<T>,
-{
+impl SentenceTransformer {
     pub fn embed(&self, lines: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
         let mut embeddings: Vec<Vec<f32>> = vec![];
 
-        // let mut token_ids = self
-        //     .tokenizer
-        //     .encode_batch(lines.to_vec(), true)?
-        //     .iter()
-        //     .map(|enc| enc.get_ids().to_vec())
-        //     .collect::<Vec<Vec<u32>>>();
-
-        // let pad_token = self
-        //     .model_config
-        //     .pad_token_id
-        //     .unwrap_or(DEFAULT_PAD_TOKEN_ID);
-        // let batches =
-        //     fast_token_based_batching(&mut token_ids, pad_token, self.batch_size, &self.device)?;
-
-        let batches = self.transformer.tokenize(lines, self.batch_size)?;
+        let batches = self.transformer.tokenize(
+            lines,
+            &self.device,
+            self.model_config
+                .pad_token_id
+                .unwrap_or(DEFAULT_PAD_TOKEN_ID),
+            self.batch_size,
+        )?;
 
         for batch in batches.batches.iter() {
             // transformer
-            let mut batch_embeddings = self.transformer.forward(&batch)?;
+            let mut batch_embeddings = self.transformer.forward(batch)?;
 
             // pool
             batch_embeddings = self

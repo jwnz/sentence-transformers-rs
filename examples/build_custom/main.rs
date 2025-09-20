@@ -12,10 +12,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //     the model uses normalization
         .with_normalization()
         // Must specify the folder on the hub that contains the pooling layer config.json.
-        .with_pooling("1_Pooling".to_string())
+        .with_pooling("1_Pooling")
         // [OPTIONAL] Specify the folder containing the dense layers spec. Some models
         //     have more than one dense layer. See https://huggingface.co/google/embeddinggemma-300m for example.
-        .with_dense("2_Dense".to_string())
+        .with_dense("2_Dense")
         // [OPTIONAL] Specify the batch size in tokens.
         .batch_size(2048)
         .with_device(&device)

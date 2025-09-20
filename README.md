@@ -4,19 +4,17 @@ Rust port of [sentence-transformers](https://github.com/UKPLab/sentence-transfor
 
 ## Supported Models
 
-
-<details>
-    <summary>The following models are supported by default (click to expand):</summary>
+The following models are supported by default; see [Usage: Supported Models](#supported-models):
 
 - [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
 - [sentence-transformers/all-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2)
 - [sentence-transformers/paraphrase-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/paraphrase-MiniLM-L6-v2)
 - [sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2)
 - [sentence-transformers/LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
+- [sentence-transformers/paraphrase-multilingual-mpnet-base-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2)
+- [sentence-transformers/distiluse-base-multilingual-cased-v2](https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2)
 
-All models not listed above that are based on the `BertModel` architecture should also work with some additional boilerplate; see [Usage: Other Models](#other-models) below.
-
-</details>
+Additionally, any model based on the `BertModel`, `XLMRobertaModel`, or `DistilBertModel` architectures should also work with some additional boilerplate; see [Usage: Other Models](#other-models) below.
 
 
 ## Usage
@@ -69,10 +67,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //     the model uses normalization
         .with_normalization()
         // Must specify the folder on the hub that contains the pooling layer config.json.
-        .with_pooling("1_Pooling".to_string())
+        .with_pooling("1_Pooling")
         // [OPTIONAL] Specify the folder containing the dense layers spec. Some models
         //     have more than one dense layer. See https://huggingface.co/google/embeddinggemma-300m for example.
-        .with_dense("2_Dense".to_string())
+        .with_dense("2_Dense")
         // [OPTIONAL] Specify the batch size in tokens.
         .batch_size(2048)
         .with_device(&device)

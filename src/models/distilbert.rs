@@ -6,13 +6,6 @@ use serde::Deserialize;
 
 pub const DTYPE: DType = DType::F32;
 
-fn masked_fill(on_false: &Tensor, mask: &Tensor, on_true: f32) -> Result<Tensor> {
-    let shape = mask.shape();
-    let on_true = Tensor::new(on_true, on_false.device())?.broadcast_as(shape.dims())?;
-    let m = mask.where_cond(&on_true, on_false)?;
-    Ok(m)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HiddenAct {
@@ -172,7 +165,8 @@ impl MultiHeadSelfAttention {
         let scores = q.matmul(&k.transpose(2, 3)?.contiguous()?)?;
         let mask = attention_mask.broadcast_as(scores.shape())?;
 
-        let scores = masked_fill(&scores.to_dtype(DType::F32)?, &mask, f32::NEG_INFINITY)?;
+        // let scores = masked_fill(&scores.to_dtype(DType::F32)?, &mask, f32::NEG_INFINITY)?;
+        let scores = (mask + &scores.to_dtype(DType::F32)?)?;
         let weights = candle_nn::ops::softmax(&scores, candle_core::D::Minus1)?;
 
         let context = weights.matmul(&v.contiguous()?)?;
@@ -314,9 +308,10 @@ impl DistilBertModel {
 
     pub fn forward(&self, input_ids: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
         let embedding_output = self.embeddings.forward(input_ids)?;
+        let attention_mask = get_extended_attention_mask(attention_mask, embedding_output.dtype())?;
         let sequence_output = self
             .transformer
-            .forward(&embedding_output, attention_mask)?;
+            .forward(&embedding_output, &attention_mask)?;
         Ok(sequence_output)
     }
 }
@@ -423,4 +418,19 @@ impl DistilBertForMaskedLM {
         let sequence_output = self.bert.forward(input_ids, attention_mask)?;
         self.cls.forward(&sequence_output)
     }
+}
+
+fn get_extended_attention_mask(attention_mask: &Tensor, dtype: DType) -> Result<Tensor> {
+    let attention_mask = match attention_mask.rank() {
+        3 => attention_mask.unsqueeze(1)?,
+        2 => attention_mask.unsqueeze(1)?.unsqueeze(1)?,
+        _ => candle_core::bail!("Wrong shape for input_ids or attention_mask"),
+    };
+    let attention_mask = attention_mask.to_dtype(dtype)?;
+    // torch.finfo(dtype).min
+    (attention_mask.ones_like()? - &attention_mask)?.broadcast_mul(
+        &Tensor::try_from(f32::MIN)?
+            .to_device(attention_mask.device())?
+            .to_dtype(dtype)?,
+    )
 }
