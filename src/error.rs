@@ -10,31 +10,31 @@ pub enum SentenceTransformerBuilderError {
     #[error("Pooling method must be specified")]
     PoolingMethodNotSpecified,
 
-    #[error("DownloadHFModelError: {0}")]
+    #[error("DownloadHFModelError({0})")]
     DownloadHFModelError(#[from] DownloadHFModelError),
 
-    #[error("IO Error: {0}")]
+    #[error("IO Error({0})")]
     StdIOError(#[from] std::io::Error),
 
-    #[error("SerdeJsonError: {0}")]
+    #[error("SerdeJsonError({0})")]
     SerdeJsonError(#[from] serde_json::Error),
 
-    #[error("LoadSafeTensorError: {0}")]
+    #[error("LoadSafeTensorError({0})")]
     LoadSafeTensorError(#[from] LoadSafeTensorError),
 
-    #[error("CandleError: {0}")]
+    #[error("CandleError({0})")]
     CandleError(#[from] candle_core::error::Error),
 
-    #[error("TokenizersError: {0}")]
+    #[error("TokenizersError({0})")]
     TokenizersError(#[from] tokenizers::Error),
 
-    #[error("DenseError: {0}")]
+    #[error("DenseError({0})")]
     DenseError(#[from] DenseError),
 
-    #[error("LoadConfigError: {0}")]
+    #[error("LoadConfigError({0})")]
     LoadConfigError(#[from] LoadConfigError),
 
-    #[error("TransformerError: {0}")]
+    #[error("TransformerError({0})")]
     TransformerError(#[from] TransformerError),
 }
 
@@ -97,7 +97,7 @@ pub enum EmbedError {
     #[error("NormalizeError({0})")]
     NormalizeError(#[from] NormalizeError),
 
-    #[error("TransformerError: {0}")]
+    #[error("TransformerError({0})")]
     TransformerError(#[from] TransformerError),
 }
 
@@ -118,9 +118,9 @@ pub enum CosineSimilarityError {
 
 #[derive(Error, Debug)]
 pub enum LoadConfigError {
-    #[error("IO Error: {0}")]
+    #[error("IO Error({0})")]
     StdIOError(#[from] std::io::Error),
 
-    #[error("SerdeJsonError: {0}")]
+    #[error("SerdeJsonError({0})")]
     SerdeJsonError(#[from] serde_json::Error),
 }

@@ -1,9 +1,5 @@
-use std::{fmt, marker::PhantomData};
-
 use candle_core::Device;
-use serde_json;
 use strum_macros::Display;
-use tokenizers::{Tokenizer, TruncationParams};
 
 use crate::{transformers::Transformer, utils::load_config};
 
