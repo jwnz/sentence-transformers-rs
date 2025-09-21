@@ -1,21 +1,21 @@
 use candle_core::Device;
 use strum_macros::Display;
 
-use crate::{transformers::Transformer, utils::load_config};
-
-use super::{
+use crate::{
     config::{ModelConfig, SentenceBertConfig},
     dense::{Dense, DenseConfig},
     error::{EmbedError, SentenceTransformerBuilderError},
     models::bert::DTYPE,
-    normalize::Normalize,
+    normalize::Normalizer,
     pooling::{PoolingConfig, PoolingStrategy},
+    transformers::Transformer,
+    utils::load_config,
     utils::{download_hf_hub_file, load_safetensors},
 };
 
 const DEFAULT_BATCH_SIZE: usize = 2048;
 const DEFAULT_WITH_SAFETENSORS: bool = false;
-const DEFAULT_WITH_NORMALIZE: bool = false;
+const DEFAULT_NORMALIZER: Normalizer = Normalizer::NoNormalization;
 const DEFAULT_PAD_TOKEN_ID: usize = 0;
 
 #[derive(Display)]
@@ -39,7 +39,7 @@ pub enum Which {
 pub struct SentenceTransformerBuilder {
     model_id: String,
     with_safetensors: bool,
-    with_normalization: bool,
+    normalizer: Normalizer,
     batch_size: usize,
     device: Option<Device>,
     pooling_path: Option<String>,
@@ -51,7 +51,7 @@ impl SentenceTransformerBuilder {
         Self {
             model_id: model_id.as_ref().to_string(),
             with_safetensors: DEFAULT_WITH_SAFETENSORS,
-            with_normalization: DEFAULT_WITH_NORMALIZE,
+            normalizer: DEFAULT_NORMALIZER,
             batch_size: DEFAULT_BATCH_SIZE,
             device: None,
             pooling_path: None,
@@ -65,7 +65,7 @@ impl SentenceTransformerBuilder {
             // Pooling and a single dense with norm
             Which::LaBSE => SentenceTransformerBuilder::new(model_string)
                 .with_safetensors()
-                .with_normalization()
+                .with_normalization(Normalizer::L2)
                 .with_pooling("1_Pooling")
                 .with_dense("2_Dense"),
 
@@ -90,7 +90,7 @@ impl SentenceTransformerBuilder {
             Which::AllMiniLML6v2 | Which::AllMiniLML12v2 => {
                 SentenceTransformerBuilder::new(model_string)
                     .with_safetensors()
-                    .with_normalization()
+                    .with_normalization(Normalizer::L2)
                     .with_pooling("1_Pooling")
             }
         }
@@ -106,8 +106,8 @@ impl SentenceTransformerBuilder {
         self
     }
 
-    pub fn with_normalization(mut self) -> SentenceTransformerBuilder {
-        self.with_normalization = true;
+    pub fn with_normalization(mut self, normalizer: Normalizer) -> SentenceTransformerBuilder {
+        self.normalizer = normalizer;
         self
     }
 
@@ -194,13 +194,6 @@ impl SentenceTransformerBuilder {
             dense_layers.push(layer);
         }
 
-        // normalize
-        let normalize = if self.with_normalization {
-            Some(Normalize)
-        } else {
-            None
-        };
-
         Ok(SentenceTransformer {
             model_config: model_config,
             batch_size: self.batch_size,
@@ -208,7 +201,7 @@ impl SentenceTransformerBuilder {
             transformer: transformer,
             pooler: pooler,
             dense_layers: dense_layers,
-            normalize: normalize,
+            normalizer: self.normalizer,
         })
     }
 }
@@ -220,7 +213,7 @@ pub struct SentenceTransformer {
     transformer: Transformer,
     pooler: PoolingStrategy,
     dense_layers: Vec<Dense>,
-    normalize: Option<Normalize>,
+    normalizer: Normalizer,
 }
 
 impl SentenceTransformer {
@@ -251,11 +244,7 @@ impl SentenceTransformer {
             }
 
             // norm
-            batch_embeddings = if let Some(norm) = &self.normalize {
-                norm.forward(&batch_embeddings)
-            } else {
-                Ok(batch_embeddings)
-            }?;
+            batch_embeddings = self.normalizer.normalize(&batch_embeddings)?;
 
             // add batch embeddings to final embeddings - still unsorted at this point
             for emb in batch_embeddings.to_vec2()?.into_iter() {

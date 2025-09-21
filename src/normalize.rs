@@ -2,11 +2,17 @@ use candle_core::Tensor;
 
 use crate::error::NormalizeError;
 
-pub struct Normalize;
+pub enum Normalizer {
+    NoNormalization,
+    L2,
+}
 
-impl Normalize {
-    pub fn forward(&self, xs: &Tensor) -> Result<Tensor, NormalizeError> {
-        // Divide each value by the L2 Norm - square root fot he sum of the squares of each component
-        Ok(xs.broadcast_div(&xs.sqr()?.sum_keepdim(1)?.sqrt()?)?)
+impl Normalizer {
+    pub fn normalize(&self, xs: &Tensor) -> Result<Tensor, NormalizeError> {
+        let norm = match self {
+            Normalizer::NoNormalization => xs.clone(),
+            Normalizer::L2 => xs.broadcast_div(&xs.sqr()?.sum_keepdim(1)?.sqrt()?)?,
+        };
+        Ok(norm)
     }
 }

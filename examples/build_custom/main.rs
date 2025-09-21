@@ -1,5 +1,6 @@
 use sentence_transformers_rs::{
-    sentence_transformer::SentenceTransformerBuilder, utils::cosine_similarity,
+    normalize::Normalizer, sentence_transformer::SentenceTransformerBuilder,
+    utils::cosine_similarity,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -8,9 +9,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = SentenceTransformerBuilder::new("sentence-transformers/LaBSE")
         // Specify whether to use safetensors to pytorch checkpoints
         .with_safetensors()
-        // [OPTIONAL] Use L2 normalization or not - check the modules.json file to see if
+        // [OPTIONAL] Use normalization or not - check the modules.json file to see if
         //     the model uses normalization
-        .with_normalization()
+        .with_normalization(Normalizer::L2)
         // Must specify the folder on the hub that contains the pooling layer config.json.
         .with_pooling("1_Pooling")
         // [OPTIONAL] Specify the folder containing the dense layers spec. Some models
