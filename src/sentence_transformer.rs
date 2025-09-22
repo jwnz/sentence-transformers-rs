@@ -3,7 +3,7 @@ use strum_macros::Display;
 
 use crate::{
     config::{ModelConfig, SentenceBertConfig},
-    dense::{Dense, DenseConfig},
+    dense::Dense,
     error::{EmbedError, SentenceTransformerBuilderError},
     models::bert::DTYPE,
     normalize::Normalizer,
@@ -33,6 +33,14 @@ pub enum Which {
     ParaphraseMultilingualMpnetBaseV2,
     #[strum(serialize = "sentence-transformers/distiluse-base-multilingual-cased-v2")]
     DistiluseBaseMultilingualCasedV2,
+    #[strum(serialize = "BAAI/bge-small-en-v1.5")]
+    BgeSmallEnV1_5,
+    #[strum(serialize = "intfloat/multilingual-e5-large")]
+    MultilingualE5Large,
+    #[strum(serialize = "intfloat/multilingual-e5-base")]
+    MultilingualE5Base,
+    #[strum(serialize = "intfloat/multilingual-e5-small")]
+    MultilingualE5Small,
 }
 
 pub struct SentenceTransformerBuilder {
@@ -86,12 +94,15 @@ impl SentenceTransformerBuilder {
             }
 
             // Pooling with norm
-            Which::AllMiniLML6v2 | Which::AllMiniLML12v2 => {
-                SentenceTransformerBuilder::new(model_string)
-                    .with_safetensors()
-                    .with_normalization(Normalizer::L2)
-                    .with_pooling("1_Pooling")
-            }
+            Which::AllMiniLML6v2
+            | Which::AllMiniLML12v2
+            | Which::BgeSmallEnV1_5
+            | Which::MultilingualE5Large
+            | Which::MultilingualE5Base
+            | Which::MultilingualE5Small => SentenceTransformerBuilder::new(model_string)
+                .with_safetensors()
+                .with_normalization(Normalizer::L2)
+                .with_pooling("1_Pooling"),
         }
     }
 

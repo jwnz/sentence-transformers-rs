@@ -149,3 +149,59 @@ fn test_distiluse_base_multilingual_cased_v2() -> Result<(), Box<dyn std::error:
 
     Ok(())
 }
+
+#[test]
+fn test_bge_small_en_v1_5() -> Result<(), Box<dyn std::error::Error>> {
+    let exptected_values = &[
+        0.47002625465393066,
+        0.7449013590812683,
+        0.5133005976676941,
+        0.5778589248657227,
+    ];
+
+    run_model_test(Which::BgeSmallEnV1_5, exptected_values)?;
+
+    Ok(())
+}
+
+#[test]
+fn test_multilingual_e5_large() -> Result<(), Box<dyn std::error::Error>> {
+    let exptected_values = &[
+        0.7480827569961548,
+        0.9092226028442383,
+        0.8786051869392395,
+        0.9197784662246704,
+    ];
+
+    run_model_test(Which::MultilingualE5Large, exptected_values)?;
+
+    Ok(())
+}
+
+#[test]
+fn test_multilingual_e5_small() -> Result<(), Box<dyn std::error::Error>> {
+    let exptected_values = &[
+        0.7735244035720825,
+        0.8933495283126831,
+        0.8635364174842834,
+        0.914995551109314,
+    ];
+
+    run_model_test(Which::MultilingualE5Small, exptected_values)?;
+
+    Ok(())
+}
+
+#[test]
+fn test_multilingual_e5_base() -> Result<(), Box<dyn std::error::Error>> {
+    let exptected_values = &[
+        0.7485827803611755,
+        0.8804380893707275,
+        0.8694917559623718,
+        0.9323030114173889,
+    ];
+
+    run_model_test(Which::MultilingualE5Base, exptected_values)?;
+
+    Ok(())
+}

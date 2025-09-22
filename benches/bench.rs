@@ -57,7 +57,18 @@ fn bench_paraphrase_multilingual_mpnet_base_v2(c: &mut Criterion) {
 fn bench_distiluse_base_multilingual_cased_v2(c: &mut Criterion) {
     run_bench(&Which::DistiluseBaseMultilingualCasedV2, c);
 }
-
+fn bench_bge_small_en_v1_5(c: &mut Criterion) {
+    run_bench(&Which::BgeSmallEnV1_5, c);
+}
+fn bench_multilingual_e5_large(c: &mut Criterion) {
+    run_bench(&Which::MultilingualE5Large, c);
+}
+fn bench_multilingual_e5_base(c: &mut Criterion) {
+    run_bench(&Which::MultilingualE5Base, c);
+}
+fn bench_multilingual_e5_small(c: &mut Criterion) {
+    run_bench(&Which::MultilingualE5Small, c);
+}
 criterion_group!(
     benches,
     bench_all_mini_lm_l6_v2,
@@ -66,6 +77,10 @@ criterion_group!(
     bench_paraphrase_mini_lm_l6_v2,
     bench_paraphrase_multilingual_mini_lm_l12_v2,
     bench_paraphrase_multilingual_mpnet_base_v2,
-    bench_distiluse_base_multilingual_cased_v2
+    bench_distiluse_base_multilingual_cased_v2,
+    bench_bge_small_en_v1_5,
+    bench_multilingual_e5_large,
+    bench_multilingual_e5_base,
+    bench_multilingual_e5_small,
 );
 criterion_main!(benches);
