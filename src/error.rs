@@ -91,6 +91,9 @@ pub enum DenseError {
 
     #[error("ActivationError({0})")]
     ActivationError(#[from] ActivationError),
+
+    #[error("LoadConfigError({0})")]
+    LoadConfigError(#[from] LoadConfigError),
 }
 
 #[derive(Debug, Error)]

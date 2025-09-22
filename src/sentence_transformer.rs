@@ -7,7 +7,7 @@ use crate::{
     error::{EmbedError, SentenceTransformerBuilderError},
     models::bert::DTYPE,
     normalize::Normalizer,
-    pooling::{Pooler, PoolingConfig, PoolingStrategy},
+    pooling::Pooler,
     transformers::Transformer,
     utils::{download_hf_hub_file, load_config, load_safetensors},
 };
@@ -170,10 +170,6 @@ impl SentenceTransformerBuilder {
         // Load the dense layers
         let mut dense_layers = vec![];
         for dense_path in self.dense_paths.iter() {
-            let dense_config_filename =
-                download_hf_hub_file(&self.model_id, &format!("{dense_path}/config.json"))?;
-            let dense_config = load_config::<DenseConfig>(&dense_config_filename)?;
-
             let dense_vb = if self.with_safetensors {
                 let weights_filename = download_hf_hub_file(
                     &self.model_id,
@@ -188,7 +184,9 @@ impl SentenceTransformerBuilder {
                 candle_nn::VarBuilder::from_pth(&weights_filename, DTYPE, &device)?
             };
 
-            let layer = Dense::from_config(dense_vb, dense_config)?;
+            let dense_config_filename =
+                download_hf_hub_file(&self.model_id, &format!("{dense_path}/config.json"))?;
+            let layer = Dense::from_config(dense_vb, &dense_config_filename)?;
             dense_layers.push(layer);
         }
 
