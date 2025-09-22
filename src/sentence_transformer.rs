@@ -7,10 +7,9 @@ use crate::{
     error::{EmbedError, SentenceTransformerBuilderError},
     models::bert::DTYPE,
     normalize::Normalizer,
-    pooling::{PoolingConfig, PoolingStrategy},
+    pooling::{Pooler, PoolingConfig, PoolingStrategy},
     transformers::Transformer,
-    utils::load_config,
-    utils::{download_hf_hub_file, load_safetensors},
+    utils::{download_hf_hub_file, load_config, load_safetensors},
 };
 
 const DEFAULT_BATCH_SIZE: usize = 2048;
@@ -166,8 +165,7 @@ impl SentenceTransformerBuilder {
 
         // load the pooler
         let pooling_config_filename = download_hf_hub_file(&self.model_id, &pooling_method)?;
-        let pooling_config = load_config::<PoolingConfig>(&pooling_config_filename)?;
-        let pooler = PoolingStrategy::from_config(pooling_config);
+        let pooler = Pooler::from_config(&pooling_config_filename)?;
 
         // Load the dense layers
         let mut dense_layers = vec![];
@@ -211,7 +209,7 @@ pub struct SentenceTransformer {
     batch_size: usize,
     device: Device,
     transformer: Transformer,
-    pooler: PoolingStrategy,
+    pooler: Pooler,
     dense_layers: Vec<Dense>,
     normalizer: Normalizer,
 }
@@ -234,9 +232,7 @@ impl SentenceTransformer {
             let mut batch_embeddings = self.transformer.forward(batch)?;
 
             // pool
-            batch_embeddings = self
-                .pooler
-                .forward(&batch_embeddings, &batch.attention_mask)?;
+            batch_embeddings = self.pooler.pool(&batch_embeddings, &batch.attention_mask)?;
 
             // dense
             for dense in self.dense_layers.iter() {

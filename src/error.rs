@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::pooling::PoolingConfig;
 use crate::transformers::TransformerError;
 
 #[derive(Debug, Error)]
@@ -36,6 +37,9 @@ pub enum SentenceTransformerBuilderError {
 
     #[error("TransformerError({0})")]
     TransformerError(#[from] TransformerError),
+
+    #[error("PoolerFromConfigError ({0})")]
+    PoolerFromConfigError(#[from] PoolerFromConfigError),
 }
 
 #[derive(Debug, Error)]
@@ -57,9 +61,27 @@ pub enum LoadSafeTensorError {
 }
 
 #[derive(Debug, Error)]
+pub enum PoolingStrategyError {
+    #[error("CandleError({0})")]
+    CandleError(#[from] candle_core::error::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum PoolerFromConfigError {
+    #[error("LoadConfigError({0})")]
+    LoadConfigError(#[from] LoadConfigError),
+
+    #[error("Pooler must have at least one pooling strategy: (config: {config:?})")]
+    PoolingStrategyNotSpecifiedError { config: PoolingConfig },
+}
+
+#[derive(Debug, Error)]
 pub enum PoolingError {
     #[error("CandleError({0})")]
     CandleError(#[from] candle_core::error::Error),
+
+    #[error("PoolingStrategyError({0})")]
+    PoolingStrategyError(#[from] PoolingStrategyError),
 }
 
 #[derive(Debug, Error)]
