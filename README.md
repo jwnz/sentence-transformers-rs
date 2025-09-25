@@ -7,18 +7,21 @@ Rust port of [sentence-transformers](https://github.com/UKPLab/sentence-transfor
 The following embedding models are supported by default; see [Usage: Supported Models](#supported-models):
 
 - [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
-- [sentence-transformers/all-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2)
-- [sentence-transformers/paraphrase-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/paraphrase-MiniLM-L6-v2)
+- [sentence-transformers/all-mpnet-base-v2](https://huggingface.co/sentence-transformers/all-mpnet-base-v2)
 - [sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2)
-- [sentence-transformers/LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
+- [sentence-transformers/paraphrase-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/paraphrase-MiniLM-L6-v2)
+- [sentence-transformers/all-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2)
 - [sentence-transformers/paraphrase-multilingual-mpnet-base-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2)
 - [sentence-transformers/distiluse-base-multilingual-cased-v2](https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2)
+- [sentence-transformers/paraphrase-mpnet-base-v2](https://huggingface.co/sentence-transformers/paraphrase-mpnet-base-v2)
+- [sentence-transformers/LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
 - [BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5)
 - [intfloat/multilingual-e5-large](https://huggingface.co/intfloat/multilingual-e5-large)
 - [intfloat/multilingual-e5-base](https://huggingface.co/intfloat/multilingual-e5-base)
 - [intfloat/multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small)
 
-Additionally, any model based on the `BertModel`, `XLMRobertaModel`, or `DistilBertModel` architectures should also work with some additional boilerplate; see [Usage: Other Models](#other-models) below.
+
+Additionally, any model based on the `BertModel`, `XLMRobertaModel`, `DistilBertModel`, or `MPNetModel*` architectures should also work with some additional boilerplate; see [Usage: Other Models](#other-models) below.
 
 
 ## Usage
@@ -54,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Other Models
 
-You can also build models that aren’t in the supported list, as long as the architecture is based on `BertModel`, `XLMRobertaModel`, or `DistilBertModel` . If you're not sure, check the `"architectures"` field in the repo's [`config.json`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/main/config.json) file.
+You can also build models that aren’t in the supported list, as long as the architecture is based on `BertModel`, `XLMRobertaModel`, `DistilBertModel`, or `MPNetModel*`. If you're not sure, check the `"architectures"` field in the repo's [`config.json`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/main/config.json) file.
 
 ```Rust
 use sentence_transformers_rs::{
@@ -97,7 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Todo
 
-- [ ] Support `MPNetMaskedLM` architecture
-- [ ] Support `NomicBertModel` architecture
-- [ ] Support `MPNetMaskedLM` architecture
-- [ ] Support `Gemma3TextModel` architecture
+I would like to add support for the following architectures
+
+- [ ] `T5EncoderModel`
+- [ ] `RobertaModel` and `RobertaForMaskedLM`
+- [ ] `Gemma3TextModel`
+- [ ] `ModernBert`
+- [ ] `NomicBertModel`
+- [ ] `AlbertModel`

@@ -26,6 +26,21 @@ time:   [321.68 ms 325.99 ms 330.83 ms]
 
 sentence-transformers/distiluse-base-multilingual-cased-v2
 time:   [118.12 ms 120.42 ms 122.86 ms]
+
+intfloat/multilingual-e5-large
+time:   [2.0778 s 2.0961 s 2.1156 s]
+
+intfloat/multilingual-e5-base
+time:   [702.11 ms 711.10 ms 720.91 ms]
+
+intfloat/multilingual-e5-small
+time:   [482.00 ms 490.06 ms 499.09 ms]
+
+sentence-transformers/all-mpnet-base-v2
+time:   [407.76 ms 414.05 ms 420.76 ms]
+
+sentence-transformers/paraphrase-mpnet-base-v2
+time:   [450.43 ms 459.55 ms 469.56 ms]
 ```
 
 ## Run Bench

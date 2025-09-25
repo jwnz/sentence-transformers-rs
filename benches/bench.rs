@@ -69,6 +69,12 @@ fn bench_multilingual_e5_base(c: &mut Criterion) {
 fn bench_multilingual_e5_small(c: &mut Criterion) {
     run_bench(&Which::MultilingualE5Small, c);
 }
+fn bench_all_mpnet_base_v2(c: &mut Criterion) {
+    run_bench(&Which::AllMpnetBaseV2, c);
+}
+fn bench_paraphrase_mpnet_base_v2(c: &mut Criterion) {
+    run_bench(&Which::ParaphraseMpnetBaseV2, c);
+}
 criterion_group!(
     benches,
     bench_all_mini_lm_l6_v2,
@@ -82,5 +88,7 @@ criterion_group!(
     bench_multilingual_e5_large,
     bench_multilingual_e5_base,
     bench_multilingual_e5_small,
+    bench_all_mpnet_base_v2,
+    bench_paraphrase_mpnet_base_v2
 );
 criterion_main!(benches);

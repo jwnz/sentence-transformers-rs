@@ -41,6 +41,10 @@ pub enum Which {
     MultilingualE5Base,
     #[strum(serialize = "intfloat/multilingual-e5-small")]
     MultilingualE5Small,
+    #[strum(serialize = "sentence-transformers/all-mpnet-base-v2")]
+    AllMpnetBaseV2,
+    #[strum(serialize = "sentence-transformers/paraphrase-mpnet-base-v2")]
+    ParaphraseMpnetBaseV2,
 }
 
 pub struct SentenceTransformerBuilder {
@@ -87,11 +91,10 @@ impl SentenceTransformerBuilder {
             // Has pooling, but not norm
             Which::ParaphraseMultilingualMiniLML12v2
             | Which::ParaphraseMiniLML6v2
-            | Which::ParaphraseMultilingualMpnetBaseV2 => {
-                SentenceTransformerBuilder::new(model_string)
-                    .with_safetensors()
-                    .with_pooling("1_Pooling")
-            }
+            | Which::ParaphraseMultilingualMpnetBaseV2
+            | Which::ParaphraseMpnetBaseV2 => SentenceTransformerBuilder::new(model_string)
+                .with_safetensors()
+                .with_pooling("1_Pooling"),
 
             // Pooling with norm
             Which::AllMiniLML6v2
@@ -99,7 +102,8 @@ impl SentenceTransformerBuilder {
             | Which::BgeSmallEnV1_5
             | Which::MultilingualE5Large
             | Which::MultilingualE5Base
-            | Which::MultilingualE5Small => SentenceTransformerBuilder::new(model_string)
+            | Which::MultilingualE5Small
+            | Which::AllMpnetBaseV2 => SentenceTransformerBuilder::new(model_string)
                 .with_safetensors()
                 .with_normalization(Normalizer::L2)
                 .with_pooling("1_Pooling"),

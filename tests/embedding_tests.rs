@@ -205,3 +205,31 @@ fn test_multilingual_e5_base() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn test_all_mpnet_base_v2() -> Result<(), Box<dyn std::error::Error>> {
+    let exptected_values = &[
+        0.11577967554330826,
+        0.5590482354164124,
+        0.13014498353004456,
+        0.22664645314216614,
+    ];
+
+    run_model_test(Which::AllMpnetBaseV2, exptected_values)?;
+
+    Ok(())
+}
+
+#[test]
+fn test_all_paraphrase_mpnet_base_v2() -> Result<(), Box<dyn std::error::Error>> {
+    let exptected_values = &[
+        0.18291977047920227,
+        0.45445868372917175,
+        0.2356531023979187,
+        0.26501917839050293,
+    ];
+
+    run_model_test(Which::ParaphraseMpnetBaseV2, exptected_values)?;
+
+    Ok(())
+}

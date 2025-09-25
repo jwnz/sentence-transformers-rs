@@ -11,6 +11,7 @@ use crate::{
     models::{
         bert::{BertModel, Config as BertConfig},
         distilbert::{Config as DistilBertConfig, DistilBertModel},
+        mpnet::{Config as MPNetConfig, MPNetModel},
         xlm_roberta::{Config as XLMRobertaConfig, XLMRobertaModel},
     },
     utils::{fast_token_based_batching, load_config, Batch, TokenBatchOutput},
@@ -26,12 +27,15 @@ pub enum Architecture {
     BertModel,
     DistilBertModel,
     XLMRobertaModel,
+    #[serde(alias = "MPNetForMaskedLM")]
+    MPNetModel,
 }
 
 pub enum Model {
     Bert(BertModel),
     DistilBert(DistilBertModel),
     XLMRoberta(XLMRobertaModel),
+    MPNetModel(MPNetModel),
 }
 
 pub struct Transformer {
@@ -85,6 +89,13 @@ impl Transformer {
                     tokenizer: tokenizer,
                 }
             }
+            Architecture::MPNetModel => {
+                let config = load_config::<MPNetConfig>(config_filename)?;
+                Self {
+                    model: Model::MPNetModel(MPNetModel::load(vb, &config)?),
+                    tokenizer: tokenizer,
+                }
+            }
         };
         Ok(transformer)
     }
@@ -102,6 +113,7 @@ impl Transformer {
                 &batch.token_type_ids,
             )?),
             Model::DistilBert(model) => Ok(model.forward(&batch.input_ids, &batch.attention_mask)?),
+            Model::MPNetModel(model) => Ok(model.forward(&batch.input_ids, &batch.attention_mask)?),
         }
     }
 
@@ -113,7 +125,7 @@ impl Transformer {
         batch_size: usize,
     ) -> Result<TokenBatchOutput, Err> {
         match &self.model {
-            Model::Bert(_) | Model::DistilBert(_) | Model::XLMRoberta(_) => {
+            Model::Bert(_) | Model::DistilBert(_) | Model::XLMRoberta(_) | Model::MPNetModel(_) => {
                 let mut token_ids = self
                     .tokenizer
                     .encode_batch(lines.to_vec(), true)?
