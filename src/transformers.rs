@@ -9,7 +9,7 @@ use tokenizers::{Tokenizer, TruncationParams};
 use crate::{
     error::{FastTokenBatchError, LoadConfigError},
     models::{
-        bert::{BertModel, Config as BertConfig},
+        bert::{BertConfig, BertModel},
         distilbert::{Config as DistilBertConfig, DistilBertModel},
         mpnet::{Config as MPNetConfig, MPNetModel},
         xlm_roberta::{Config as XLMRobertaConfig, XLMRobertaModel},
@@ -105,7 +105,7 @@ impl Transformer {
             Model::Bert(model) => Ok(model.forward(
                 &batch.input_ids,
                 &batch.token_type_ids,
-                Some(&batch.attention_mask),
+                &batch.attention_mask,
             )?),
             Model::XLMRoberta(model) => Ok(model.forward(
                 &batch.input_ids,

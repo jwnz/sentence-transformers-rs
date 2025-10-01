@@ -89,17 +89,8 @@ pub enum DenseError {
     #[error("CandleError({0})")]
     CandleError(#[from] candle_core::error::Error),
 
-    #[error("ActivationError({0})")]
-    ActivationError(#[from] ActivationError),
-
     #[error("LoadConfigError({0})")]
     LoadConfigError(#[from] LoadConfigError),
-}
-
-#[derive(Debug, Error)]
-pub enum ActivationError {
-    #[error("CandleError({0})")]
-    CandleError(#[from] candle_core::error::Error),
 }
 
 #[derive(Error, Debug)]

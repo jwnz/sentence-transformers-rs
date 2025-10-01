@@ -1,9 +1,7 @@
 use candle_core::Tensor;
 use serde::Deserialize;
 
-use crate::error::ActivationError;
-
-#[derive(Deserialize, Clone)]
+#[derive(Debug, PartialEq, Deserialize, Clone, Copy)]
 pub enum Activation {
     #[serde(alias = "Tanh")]
     #[serde(alias = "torch.nn.modules.activation.Tanh")]
@@ -12,12 +10,21 @@ pub enum Activation {
     #[serde(alias = "Identity")]
     #[serde(alias = "torch.nn.modules.linear.Identity")]
     Identity,
+
+    #[serde(alias = "gelu")]
+    Gelu,
+
+    #[serde(alias = "relu")]
+    Relu,
 }
+
 impl Activation {
-    pub fn forward(&self, xs: &Tensor) -> Result<Tensor, ActivationError> {
+    pub fn forward(&self, xs: &Tensor) -> Result<Tensor, candle_core::error::Error> {
         let xs = match self {
             Activation::Tanh => xs.tanh()?,
             Activation::Identity => xs.clone(),
+            Activation::Gelu => xs.gelu_erf()?,
+            Activation::Relu => xs.relu()?,
         };
 
         Ok(xs)

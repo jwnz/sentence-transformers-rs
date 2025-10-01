@@ -45,6 +45,8 @@ pub enum Which {
     AllMpnetBaseV2,
     #[strum(serialize = "sentence-transformers/paraphrase-mpnet-base-v2")]
     ParaphraseMpnetBaseV2,
+    #[strum(serialize = "BAAI/bge-base-en-v1.5")]
+    BgeBaseEnV1_5,
 }
 
 pub struct SentenceTransformerBuilder {
@@ -103,7 +105,8 @@ impl SentenceTransformerBuilder {
             | Which::MultilingualE5Large
             | Which::MultilingualE5Base
             | Which::MultilingualE5Small
-            | Which::AllMpnetBaseV2 => SentenceTransformerBuilder::new(model_string)
+            | Which::AllMpnetBaseV2
+            | Which::BgeBaseEnV1_5 => SentenceTransformerBuilder::new(model_string)
                 .with_safetensors()
                 .with_normalization(Normalizer::L2)
                 .with_pooling("1_Pooling"),

@@ -1,18 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use sentence_transformers_rs::sentence_transformer::{SentenceTransformerBuilder, Which};
 
-use rand::distr::Alphanumeric;
-use rand::Rng;
-
-fn random_sentence() -> String {
-    let mut rng = rand::rng();
-    let len = rng.random_range(64..512);
-    rng.sample_iter(&Alphanumeric)
-        .take(len)
-        .map(char::from)
-        .collect()
-}
-
 fn run_bench(which_model: &Which, c: &mut Criterion) {
     #[cfg(feature = "cuda")]
     let device = candle_core::Device::new_cuda(0).unwrap();
@@ -25,8 +13,10 @@ fn run_bench(which_model: &Which, c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let sentences: Vec<String> = (0..100).map(|_| random_sentence()).collect();
-    let sentences: Vec<&str> = sentences.iter().map(|s| s.as_str()).collect();
+    let repeated_string = "Hello ".repeat(512);
+    let test_str = repeated_string.as_str();
+
+    let sentences: Vec<&str> = (0..32).map(|_| test_str).collect();
 
     c.bench_function(which_model.to_string().as_ref(), |b| {
         b.iter(|| {
@@ -75,6 +65,10 @@ fn bench_all_mpnet_base_v2(c: &mut Criterion) {
 fn bench_paraphrase_mpnet_base_v2(c: &mut Criterion) {
     run_bench(&Which::ParaphraseMpnetBaseV2, c);
 }
+fn bench_bge_base_en_v1_5(c: &mut Criterion) {
+    run_bench(&Which::BgeBaseEnV1_5, c);
+}
+
 criterion_group!(
     benches,
     bench_all_mini_lm_l6_v2,
@@ -89,6 +83,7 @@ criterion_group!(
     bench_multilingual_e5_base,
     bench_multilingual_e5_small,
     bench_all_mpnet_base_v2,
-    bench_paraphrase_mpnet_base_v2
+    bench_paraphrase_mpnet_base_v2,
+    bench_bge_base_en_v1_5
 );
 criterion_main!(benches);

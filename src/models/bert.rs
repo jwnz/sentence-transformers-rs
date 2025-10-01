@@ -1,38 +1,12 @@
-//! Adapted from Candle (Apache-2.0, MIT License, https://github.com/huggingface/candle/blob/main/candle-transformers/src/models/bert.rs)
-
-use candle_core::{DType, Device, Result, Tensor};
-use candle_nn::{embedding, layer_norm, linear, Embedding, LayerNorm, Linear, Module, VarBuilder};
+use candle_core::{DType, Result, Tensor, D};
+use candle_nn::{layer_norm, LayerNorm, Linear, Module, VarBuilder};
 use serde::Deserialize;
 
+use candle_nn::Embedding;
+
+use crate::activation::Activation;
+
 pub const DTYPE: DType = DType::F32;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HiddenAct {
-    Gelu,
-    GeluApproximate,
-    Relu,
-}
-
-#[derive(Clone)]
-struct HiddenActLayer {
-    act: HiddenAct,
-}
-
-impl HiddenActLayer {
-    fn new(act: HiddenAct) -> Self {
-        Self { act }
-    }
-
-    fn forward(&self, xs: &Tensor) -> candle_core::Result<Tensor> {
-        match self.act {
-            // https://github.com/huggingface/transformers/blob/cd4584e3c809bb9e1392ccd3fe38b40daba5519a/src/transformers/activations.py#L213
-            HiddenAct::Gelu => xs.gelu_erf(),
-            HiddenAct::GeluApproximate => xs.gelu(),
-            HiddenAct::Relu => xs.relu(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -43,14 +17,13 @@ pub enum PositionEmbeddingType {
 
 // https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/configuration_bert.py#L1
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Config {
+pub struct BertConfig {
     pub vocab_size: usize,
     pub hidden_size: usize,
     pub num_hidden_layers: usize,
     pub num_attention_heads: usize,
     pub intermediate_size: usize,
-    pub hidden_act: HiddenAct,
-    pub hidden_dropout_prob: f64,
+    pub hidden_act: Activation,
     pub max_position_embeddings: usize,
     pub type_vocab_size: usize,
     pub initializer_range: f64,
@@ -60,394 +33,52 @@ pub struct Config {
     pub position_embedding_type: PositionEmbeddingType,
     #[serde(default)]
     pub use_cache: bool,
-    pub classifier_dropout: Option<f64>,
     pub model_type: Option<String>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            vocab_size: 30522,
-            hidden_size: 768,
-            num_hidden_layers: 12,
-            num_attention_heads: 12,
-            intermediate_size: 3072,
-            hidden_act: HiddenAct::Gelu,
-            hidden_dropout_prob: 0.1,
-            max_position_embeddings: 512,
-            type_vocab_size: 2,
-            initializer_range: 0.02,
-            layer_norm_eps: 1e-12,
-            pad_token_id: 0,
-            position_embedding_type: PositionEmbeddingType::Absolute,
-            use_cache: true,
-            classifier_dropout: None,
-            model_type: Some("bert".to_string()),
-        }
-    }
-}
-
-impl Config {
-    fn _all_mini_lm_l6_v2() -> Self {
-        // https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/main/config.json
-        Self {
-            vocab_size: 30522,
-            hidden_size: 384,
-            num_hidden_layers: 6,
-            num_attention_heads: 12,
-            intermediate_size: 1536,
-            hidden_act: HiddenAct::Gelu,
-            hidden_dropout_prob: 0.1,
-            max_position_embeddings: 512,
-            type_vocab_size: 2,
-            initializer_range: 0.02,
-            layer_norm_eps: 1e-12,
-            pad_token_id: 0,
-            position_embedding_type: PositionEmbeddingType::Absolute,
-            use_cache: true,
-            classifier_dropout: None,
-            model_type: Some("bert".to_string()),
-        }
-    }
-}
-
-#[derive(Clone)]
-struct Dropout {
-    #[allow(dead_code)]
-    pr: f64,
-}
-
-impl Dropout {
-    fn new(pr: f64) -> Self {
-        Self { pr }
-    }
-}
-
-impl Module for Dropout {
-    fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        // TODO
-        Ok(x.clone())
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L180
-struct BertEmbeddings {
-    word_embeddings: Embedding,
-    position_embeddings: Option<Embedding>,
+pub struct BertEmbedding {
+    layer_norm: LayerNorm,
+    position_embeddings: Embedding,
     token_type_embeddings: Embedding,
-    layer_norm: LayerNorm,
-    dropout: Dropout,
+    word_embeddings: Embedding,
+    span: tracing::Span,
 }
 
-impl BertEmbeddings {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let word_embeddings = embedding(
-            config.vocab_size,
+impl BertEmbedding {
+    pub fn load(vb: VarBuilder, config: &BertConfig) -> Result<Self> {
+        let word_embedding_shape = (config.vocab_size, config.hidden_size);
+        let word_embeddings = Embedding::new(
+            vb.pp("word_embeddings")
+                .get(word_embedding_shape, "weight")?,
             config.hidden_size,
-            vb.pp("word_embeddings"),
-        )?;
-        let position_embeddings = embedding(
-            config.max_position_embeddings,
+        );
+
+        let token_type_shape = (config.type_vocab_size, config.hidden_size);
+        let token_type_embeddings = Embedding::new(
+            vb.pp("token_type_embeddings")
+                .get(token_type_shape, "weight")?,
             config.hidden_size,
-            vb.pp("position_embeddings"),
-        )?;
-        let token_type_embeddings = embedding(
-            config.type_vocab_size,
+        );
+
+        let position_embedding_shape = (config.max_position_embeddings, config.hidden_size);
+        let position_embeddings = Embedding::new(
+            vb.pp("position_embeddings")
+                .get(position_embedding_shape, "weight")?,
             config.hidden_size,
-            vb.pp("token_type_embeddings"),
-        )?;
+        );
+
         let layer_norm = layer_norm(
             config.hidden_size,
             config.layer_norm_eps,
             vb.pp("LayerNorm"),
         )?;
+
         Ok(Self {
-            word_embeddings,
-            position_embeddings: Some(position_embeddings),
+            layer_norm,
+            position_embeddings,
             token_type_embeddings,
-            layer_norm,
-            dropout: Dropout::new(config.hidden_dropout_prob),
-        })
-    }
-
-    fn forward(&self, input_ids: &Tensor, token_type_ids: &Tensor) -> Result<Tensor> {
-        let (_bsize, seq_len) = input_ids.dims2()?;
-        let input_embeddings = self.word_embeddings.forward(input_ids)?;
-        let token_type_embeddings = self.token_type_embeddings.forward(token_type_ids)?;
-        let mut embeddings = (&input_embeddings + token_type_embeddings)?;
-        if let Some(position_embeddings) = &self.position_embeddings {
-            // TODO: Proper absolute positions?
-            let position_ids = (0..seq_len as u32).collect::<Vec<_>>();
-            let position_ids = Tensor::new(&position_ids[..], input_ids.device())?;
-            embeddings = embeddings.broadcast_add(&position_embeddings.forward(&position_ids)?)?
-        }
-        let embeddings = self.layer_norm.forward(&embeddings)?;
-        let embeddings = self.dropout.forward(&embeddings)?;
-        Ok(embeddings)
-    }
-}
-
-#[derive(Clone)]
-struct BertSelfAttention {
-    query: Linear,
-    key: Linear,
-    value: Linear,
-    dropout: Dropout,
-    num_attention_heads: usize,
-    attention_head_size: usize,
-}
-
-impl BertSelfAttention {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let attention_head_size = config.hidden_size / config.num_attention_heads;
-        let all_head_size = config.num_attention_heads * attention_head_size;
-        let dropout = Dropout::new(config.hidden_dropout_prob);
-        let hidden_size = config.hidden_size;
-        let query = linear(hidden_size, all_head_size, vb.pp("query"))?;
-        let value = linear(hidden_size, all_head_size, vb.pp("value"))?;
-        let key = linear(hidden_size, all_head_size, vb.pp("key"))?;
-        Ok(Self {
-            query,
-            key,
-            value,
-            dropout,
-            num_attention_heads: config.num_attention_heads,
-            attention_head_size,
-        })
-    }
-
-    fn transpose_for_scores(&self, xs: &Tensor) -> Result<Tensor> {
-        let mut new_x_shape = xs.dims().to_vec();
-        new_x_shape.pop();
-        new_x_shape.push(self.num_attention_heads);
-        new_x_shape.push(self.attention_head_size);
-        let xs = xs.reshape(new_x_shape.as_slice())?.transpose(1, 2)?;
-        xs.contiguous()
-    }
-
-    fn forward(&self, hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
-        let query_layer = self.query.forward(hidden_states)?;
-        let key_layer = self.key.forward(hidden_states)?;
-        let value_layer = self.value.forward(hidden_states)?;
-
-        let query_layer = self.transpose_for_scores(&query_layer)?;
-        let key_layer = self.transpose_for_scores(&key_layer)?;
-        let value_layer = self.transpose_for_scores(&value_layer)?;
-
-        let attention_scores = query_layer.matmul(&key_layer.t()?)?;
-        let attention_scores = (attention_scores / (self.attention_head_size as f64).sqrt())?;
-        let attention_scores = attention_scores.broadcast_add(attention_mask)?;
-        let attention_probs =
-            { candle_nn::ops::softmax(&attention_scores, candle_core::D::Minus1)? };
-        let attention_probs = self.dropout.forward(&attention_probs)?;
-
-        let context_layer = attention_probs.matmul(&value_layer)?;
-        let context_layer = context_layer.transpose(1, 2)?.contiguous()?;
-        let context_layer = context_layer.flatten_from(candle_core::D::Minus2)?;
-        Ok(context_layer)
-    }
-}
-
-#[derive(Clone)]
-struct BertSelfOutput {
-    dense: Linear,
-    layer_norm: LayerNorm,
-    dropout: Dropout,
-}
-
-impl BertSelfOutput {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let dense = linear(config.hidden_size, config.hidden_size, vb.pp("dense"))?;
-        let layer_norm = layer_norm(
-            config.hidden_size,
-            config.layer_norm_eps,
-            vb.pp("LayerNorm"),
-        )?;
-        let dropout = Dropout::new(config.hidden_dropout_prob);
-        Ok(Self {
-            dense,
-            layer_norm,
-            dropout,
-        })
-    }
-
-    fn forward(&self, hidden_states: &Tensor, input_tensor: &Tensor) -> Result<Tensor> {
-        let hidden_states = self.dense.forward(hidden_states)?;
-        let hidden_states = self.dropout.forward(&hidden_states)?;
-        self.layer_norm.forward(&(hidden_states + input_tensor)?)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L392
-#[derive(Clone)]
-struct BertAttention {
-    self_attention: BertSelfAttention,
-    self_output: BertSelfOutput,
-}
-
-impl BertAttention {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let self_attention = BertSelfAttention::load(vb.pp("self"), config)?;
-        let self_output = BertSelfOutput::load(vb.pp("output"), config)?;
-        Ok(Self {
-            self_attention,
-            self_output,
-        })
-    }
-
-    fn forward(&self, hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
-        let self_outputs = self.self_attention.forward(hidden_states, attention_mask)?;
-        let attention_output = self.self_output.forward(&self_outputs, hidden_states)?;
-        Ok(attention_output)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L441
-#[derive(Clone)]
-struct BertIntermediate {
-    dense: Linear,
-    intermediate_act: HiddenActLayer,
-}
-
-impl BertIntermediate {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let dense = linear(config.hidden_size, config.intermediate_size, vb.pp("dense"))?;
-        Ok(Self {
-            dense,
-            intermediate_act: HiddenActLayer::new(config.hidden_act),
-        })
-    }
-}
-
-impl Module for BertIntermediate {
-    fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
-        let hidden_states = self.dense.forward(hidden_states)?;
-        let ys = self.intermediate_act.forward(&hidden_states)?;
-        Ok(ys)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L456
-#[derive(Clone)]
-struct BertOutput {
-    dense: Linear,
-    layer_norm: LayerNorm,
-    dropout: Dropout,
-}
-
-impl BertOutput {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let dense = linear(config.intermediate_size, config.hidden_size, vb.pp("dense"))?;
-        let layer_norm = layer_norm(
-            config.hidden_size,
-            config.layer_norm_eps,
-            vb.pp("LayerNorm"),
-        )?;
-        let dropout = Dropout::new(config.hidden_dropout_prob);
-        Ok(Self {
-            dense,
-            layer_norm,
-            dropout,
-        })
-    }
-
-    fn forward(&self, hidden_states: &Tensor, input_tensor: &Tensor) -> Result<Tensor> {
-        let hidden_states = self.dense.forward(hidden_states)?;
-        let hidden_states = self.dropout.forward(&hidden_states)?;
-        self.layer_norm.forward(&(hidden_states + input_tensor)?)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L470
-#[derive(Clone)]
-pub struct BertLayer {
-    attention: BertAttention,
-    intermediate: BertIntermediate,
-    output: BertOutput,
-}
-
-impl BertLayer {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let attention = BertAttention::load(vb.pp("attention"), config)?;
-        let intermediate = BertIntermediate::load(vb.pp("intermediate"), config)?;
-        let output = BertOutput::load(vb.pp("output"), config)?;
-        Ok(Self {
-            attention,
-            intermediate,
-            output,
-        })
-    }
-
-    fn forward(&self, hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
-        let attention_output = self.attention.forward(hidden_states, attention_mask)?;
-        // TODO: Support cross-attention?
-        // https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L523
-        // TODO: Support something similar to `apply_chunking_to_forward`?
-        let intermediate_output = self.intermediate.forward(&attention_output)?;
-        let layer_output = self
-            .output
-            .forward(&intermediate_output, &attention_output)?;
-        Ok(layer_output)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L556
-#[derive(Clone)]
-pub struct BertEncoder {
-    pub layers: Vec<BertLayer>,
-}
-
-impl BertEncoder {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let layers = (0..config.num_hidden_layers)
-            .map(|index| BertLayer::load(vb.pp(format!("layer.{index}")), config))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(BertEncoder { layers })
-    }
-
-    pub fn forward(&self, hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
-        let mut hidden_states = hidden_states.clone();
-        // Use a loop rather than a fold as it's easier to modify when adding debug/...
-        for layer in self.layers.iter() {
-            hidden_states = layer.forward(&hidden_states, attention_mask)?
-        }
-        Ok(hidden_states)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L874
-pub struct BertModel {
-    embeddings: BertEmbeddings,
-    encoder: BertEncoder,
-    pub device: Device,
-}
-
-impl BertModel {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let (embeddings, encoder) = match (
-            BertEmbeddings::load(vb.pp("embeddings"), config),
-            BertEncoder::load(vb.pp("encoder"), config),
-        ) {
-            (Ok(embeddings), Ok(encoder)) => (embeddings, encoder),
-            (Err(err), _) | (_, Err(err)) => {
-                if let Some(model_type) = &config.model_type {
-                    if let (Ok(embeddings), Ok(encoder)) = (
-                        BertEmbeddings::load(vb.pp(format!("{model_type}.embeddings")), config),
-                        BertEncoder::load(vb.pp(format!("{model_type}.encoder")), config),
-                    ) {
-                        (embeddings, encoder)
-                    } else {
-                        return Err(err);
-                    }
-                } else {
-                    return Err(err);
-                }
-            }
-        };
-        Ok(Self {
-            embeddings,
-            encoder,
-            device: vb.device().clone(),
+            word_embeddings,
+            span: tracing::span!(tracing::Level::TRACE, "BertEmbedding"),
         })
     }
 
@@ -455,18 +86,296 @@ impl BertModel {
         &self,
         input_ids: &Tensor,
         token_type_ids: &Tensor,
-        attention_mask: Option<&Tensor>,
+        position_ids: &Tensor,
     ) -> Result<Tensor> {
-        let embedding_output = self.embeddings.forward(input_ids, token_type_ids)?;
-        let attention_mask = match attention_mask {
-            Some(attention_mask) => attention_mask.clone(),
-            None => input_ids.ones_like()?,
-        };
-        let dtype = embedding_output.dtype();
-        // https://github.com/huggingface/transformers/blob/6eedfa6dd15dc1e22a55ae036f681914e5a0d9a1/src/transformers/models/bert/modeling_bert.py#L995
-        let attention_mask = get_extended_attention_mask(&attention_mask, dtype)?;
-        let sequence_output = self.encoder.forward(&embedding_output, &attention_mask)?;
-        Ok(sequence_output)
+        let _enter = self.span.enter();
+
+        let input_embeddings = self.word_embeddings.forward(input_ids)?;
+        let token_type_embeddings = self.token_type_embeddings.forward(token_type_ids)?;
+        let position_embeddings = self.position_embeddings.forward(position_ids)?;
+
+        // fused layer_norm + residual, kernels can be used here.
+        // something like: norm((input + token_type), position)
+        // see: https://github.com/huggingface/candle-layer-norm
+        let embeddings = (&input_embeddings + token_type_embeddings)?;
+        let embeddings = embeddings.broadcast_add(&position_embeddings)?;
+        let embeddings = self.layer_norm.forward(&embeddings)?;
+
+        Ok(embeddings)
+    }
+}
+
+pub struct BertMultiHeadAttention {
+    qkv: Linear,
+    dense: Linear,
+    layer_norm: LayerNorm,
+    softmax_scale: f64,
+    num_attention_heads: usize,
+    attention_head_size: usize,
+    span: tracing::Span,
+}
+
+impl BertMultiHeadAttention {
+    pub fn load(vb: VarBuilder, config: &BertConfig) -> Result<Self> {
+        let attention_head_size = config.hidden_size / config.num_attention_heads;
+        let all_head_size = config.num_attention_heads * attention_head_size;
+        let hidden_size = config.hidden_size;
+
+        let query_weight = vb
+            .pp("self.query")
+            .get((all_head_size, hidden_size), "weight")?;
+        let query_bias = vb.pp("self.query").get(all_head_size, "bias")?;
+
+        let key_weight = vb
+            .pp("self.key")
+            .get((all_head_size, hidden_size), "weight")?;
+        let key_bias = vb.pp("self.key").get(all_head_size, "bias")?;
+
+        let value_weight = vb
+            .pp("self.value")
+            .get((all_head_size, hidden_size), "weight")?;
+        let value_bias = vb.pp("self.value").get(all_head_size, "bias")?;
+
+        let qkv_weight = Tensor::cat(&[&query_weight, &key_weight, &value_weight], 0)?;
+        let qkv_bias = Tensor::cat(&[&query_bias, &key_bias, &value_bias], 0)?;
+
+        let qkv = Linear::new(qkv_weight, Some(qkv_bias));
+
+        let dense_weight = vb
+            .pp("output.dense")
+            .get((hidden_size, hidden_size), "weight")?;
+        let dense_bias = vb.pp("output.dense").get(hidden_size, "bias")?;
+
+        let dense = Linear::new(dense_weight, Some(dense_bias));
+
+        let layer_norm = layer_norm(
+            config.hidden_size,
+            config.layer_norm_eps,
+            vb.pp("output.LayerNorm"),
+        )?;
+
+        let softmax_scale = 1.0 / ((config.hidden_size / config.num_attention_heads) as f64).sqrt();
+
+        Ok(Self {
+            qkv,
+            dense,
+            layer_norm,
+            softmax_scale,
+            num_attention_heads: config.num_attention_heads,
+            attention_head_size: config.hidden_size / config.num_attention_heads,
+            span: tracing::span!(tracing::Level::TRACE, "BertMultiHeadAttention"),
+        })
+    }
+
+    pub fn forward(&self, hidden_states: &Tensor, attention_bias: &Tensor) -> Result<Tensor> {
+        let _enter = self.span.enter();
+        let residual = hidden_states.clone();
+
+        // (bsz, seq_len, 3 * num_heads * head_size) or (4, 56, 2304)
+        let qkv = self.qkv.forward(&hidden_states)?;
+
+        // (bsz, 3 * num_heads, seq_len, head_size) becomes (4, 36, 56, 64)
+        let mut new_qkv_shape = qkv.dims().to_vec();
+        new_qkv_shape.pop();
+        new_qkv_shape.push(self.num_attention_heads * 3);
+        new_qkv_shape.push(self.attention_head_size);
+        let qkv = qkv.reshape(new_qkv_shape.as_slice())?.transpose(1, 2)?;
+
+        // [
+        //     (bsz, num_heads, seq_len, head_size)
+        //     (bsz, num_heads, seq_len, head_size)
+        //     (bsz, num_heads, seq_len, head_size)
+        // ]
+        let qkv = qkv.chunk(3, 1)?;
+        let query = &qkv[0].contiguous()?;
+        let key = &qkv[1].contiguous()?;
+        let value = &qkv[2].contiguous()?;
+
+        let attention_scores = query.matmul(&key.t()?)?;
+        let attention_scores = (attention_scores * self.softmax_scale)?;
+        let attention_scores = attention_scores.add(attention_bias)?;
+
+        let attention_probs = candle_nn::ops::softmax_last_dim(&attention_scores)?;
+
+        let context_layer = attention_probs.matmul(&value)?;
+        let context_layer = context_layer.transpose(1, 2)?.flatten_from(D::Minus2)?;
+
+        let hidden_states = self.dense.forward(&context_layer)?;
+        let hidden_states = self.layer_norm.forward(&(hidden_states + residual)?)?;
+
+        Ok(hidden_states)
+    }
+}
+
+pub struct BertIntermediate {
+    dense: Linear,
+    activation: Activation,
+    span: tracing::Span,
+}
+
+impl BertIntermediate {
+    pub fn load(vb: VarBuilder, config: &BertConfig) -> Result<Self> {
+        let dense_weight = vb
+            .pp("dense")
+            .get((config.intermediate_size, config.hidden_size), "weight")?;
+        let dense_bias = vb.pp("dense").get(config.intermediate_size, "bias")?;
+        let dense = Linear::new(dense_weight, Some(dense_bias));
+
+        Ok(Self {
+            dense,
+            activation: config.hidden_act.clone(),
+            span: tracing::span!(tracing::Level::TRACE, "BertIntermediate"),
+        })
+    }
+
+    pub fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
+        let _enter = self.span.enter();
+        let hidden_states = self.dense.forward(hidden_states)?;
+        let hidden_states = self.activation.forward(&hidden_states)?;
+        Ok(hidden_states)
+    }
+}
+
+pub struct BertOutput {
+    layer_norm: LayerNorm,
+    dense: Linear,
+    span: tracing::Span,
+}
+
+impl BertOutput {
+    pub fn load(vb: VarBuilder, config: &BertConfig) -> Result<Self> {
+        let layer_norm = layer_norm(
+            config.hidden_size,
+            config.layer_norm_eps,
+            vb.pp("LayerNorm"),
+        )?;
+
+        let dense_weight = vb
+            .pp("dense")
+            .get((config.hidden_size, config.intermediate_size), "weight")?;
+        let dense_bias = vb.pp("dense").get(config.hidden_size, "bias")?;
+        let dense = Linear::new(dense_weight, Some(dense_bias));
+
+        Ok(Self {
+            layer_norm,
+            dense,
+            span: tracing::span!(tracing::Level::TRACE, "BertOutput"),
+        })
+    }
+
+    pub fn forward(&self, hidden_states: &Tensor, input_tensor: &Tensor) -> Result<Tensor> {
+        let _enter = self.span.enter();
+
+        let hidden_states = self.dense.forward(&hidden_states)?;
+        // we can use a faster layer norm as described above via candle_layer_norm
+        let hidden_states = self.layer_norm.forward(&(hidden_states + input_tensor)?)?;
+        Ok(hidden_states)
+    }
+}
+
+pub struct BertLayer {
+    attention: BertMultiHeadAttention,
+    intermediate: BertIntermediate,
+    output: BertOutput,
+    span: tracing::Span,
+}
+
+impl BertLayer {
+    pub fn load(vb: VarBuilder, config: &BertConfig) -> Result<Self> {
+        let attention = BertMultiHeadAttention::load(vb.pp("attention"), config)?;
+        let intermediate = BertIntermediate::load(vb.pp("intermediate"), config)?;
+        let output = BertOutput::load(vb.pp("output"), config)?;
+
+        Ok(Self {
+            attention,
+            intermediate,
+            output,
+            span: tracing::span!(tracing::Level::TRACE, "BertLayer"),
+        })
+    }
+    pub fn forward(&self, hidden_states: &Tensor, attention_bias: &Tensor) -> Result<Tensor> {
+        let _enter = self.span.enter();
+        let hidden_states = self.attention.forward(hidden_states, attention_bias)?;
+        let residual = hidden_states.clone();
+
+        let hidden_states = self.intermediate.forward(&hidden_states)?;
+        let hidden_states = self.output.forward(&hidden_states, &residual)?;
+
+        Ok(hidden_states)
+    }
+}
+
+pub struct BertEncoder {
+    layers: Vec<BertLayer>,
+    span: tracing::Span,
+}
+
+impl BertEncoder {
+    pub fn load(vb: VarBuilder, config: &BertConfig) -> Result<Self> {
+        Ok(Self {
+            layers: (0..config.num_hidden_layers)
+                .map(|i| BertLayer::load(vb.pp(format!("layer.{i}")), config))
+                .collect::<Result<Vec<BertLayer>>>()?,
+            span: tracing::span!(tracing::Level::TRACE, "BertEncoder"),
+        })
+    }
+    pub fn forward(&self, hidden_states: &Tensor, attention_bias: &Tensor) -> Result<Tensor> {
+        let _enter = self.span.enter();
+        let mut hidden_states = hidden_states.clone();
+
+        for layer in self.layers.iter() {
+            hidden_states = layer.forward(&hidden_states, attention_bias)?;
+        }
+
+        Ok(hidden_states)
+    }
+}
+
+pub struct BertModel {
+    embeddings: BertEmbedding,
+    encoder: BertEncoder,
+    config: BertConfig,
+    span: tracing::Span,
+}
+
+impl BertModel {
+    pub fn load(vb: VarBuilder, config: &BertConfig) -> Result<Self> {
+        let embeddings = BertEmbedding::load(vb.pp("embeddings"), config)?;
+        let encoder = BertEncoder::load(vb.pp("encoder"), config)?;
+
+        Ok(Self {
+            embeddings,
+            encoder,
+            config: config.clone(),
+            span: tracing::span!(tracing::Level::TRACE, "BertModel"),
+        })
+    }
+    pub fn forward(
+        &self,
+        input_ids: &Tensor,
+        token_type_ids: &Tensor,
+        attention_mask: &Tensor,
+    ) -> Result<Tensor> {
+        let _enter = self.span.enter();
+        let (bsz, seq_len) = input_ids.dims2()?;
+        let position_ids = (0..seq_len as u32).collect::<Vec<_>>();
+        let position_ids = Tensor::new(&position_ids[..], input_ids.device())?;
+
+        let embedding_output =
+            self.embeddings
+                .forward(&input_ids, &token_type_ids, &position_ids)?;
+
+        let attention_bias =
+            get_extended_attention_mask(&attention_mask, embedding_output.dtype())?;
+        let attention_bias = attention_bias.broadcast_as((
+            bsz,
+            self.config.num_attention_heads,
+            seq_len,
+            seq_len,
+        ))?;
+        let outputs = self.encoder.forward(&embedding_output, &attention_bias)?;
+
+        Ok(outputs)
     }
 }
 
@@ -483,101 +392,4 @@ fn get_extended_attention_mask(attention_mask: &Tensor, dtype: DType) -> Result<
             .to_device(attention_mask.device())?
             .to_dtype(dtype)?,
     )
-}
-
-//https://github.com/huggingface/transformers/blob/1bd604d11c405dfb8b78bda4062d88fc75c17de0/src/transformers/models/bert/modeling_bert.py#L752-L766
-struct BertPredictionHeadTransform {
-    dense: Linear,
-    activation: HiddenActLayer,
-    layer_norm: LayerNorm,
-}
-
-impl BertPredictionHeadTransform {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let dense = linear(config.hidden_size, config.hidden_size, vb.pp("dense"))?;
-        let activation = HiddenActLayer::new(config.hidden_act);
-        let layer_norm = layer_norm(
-            config.hidden_size,
-            config.layer_norm_eps,
-            vb.pp("LayerNorm"),
-        )?;
-        Ok(Self {
-            dense,
-            activation,
-            layer_norm,
-        })
-    }
-}
-
-impl Module for BertPredictionHeadTransform {
-    fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
-        let hidden_states = self
-            .activation
-            .forward(&self.dense.forward(hidden_states)?)?;
-        self.layer_norm.forward(&hidden_states)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/1bd604d11c405dfb8b78bda4062d88fc75c17de0/src/transformers/models/bert/modeling_bert.py#L769C1-L790C1
-pub struct BertLMPredictionHead {
-    transform: BertPredictionHeadTransform,
-    decoder: Linear,
-}
-
-impl BertLMPredictionHead {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let transform = BertPredictionHeadTransform::load(vb.pp("transform"), config)?;
-        let decoder = linear(config.hidden_size, config.vocab_size, vb.pp("decoder"))?;
-        Ok(Self { transform, decoder })
-    }
-}
-
-impl Module for BertLMPredictionHead {
-    fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
-        self.decoder
-            .forward(&self.transform.forward(hidden_states)?)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/1bd604d11c405dfb8b78bda4062d88fc75c17de0/src/transformers/models/bert/modeling_bert.py#L792
-pub struct BertOnlyMLMHead {
-    predictions: BertLMPredictionHead,
-}
-
-impl BertOnlyMLMHead {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let predictions = BertLMPredictionHead::load(vb.pp("predictions"), config)?;
-        Ok(Self { predictions })
-    }
-}
-
-impl Module for BertOnlyMLMHead {
-    fn forward(&self, sequence_output: &Tensor) -> Result<Tensor> {
-        self.predictions.forward(sequence_output)
-    }
-}
-
-pub struct BertForMaskedLM {
-    bert: BertModel,
-    cls: BertOnlyMLMHead,
-}
-
-impl BertForMaskedLM {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let bert = BertModel::load(vb.pp("bert"), config)?;
-        let cls = BertOnlyMLMHead::load(vb.pp("cls"), config)?;
-        Ok(Self { bert, cls })
-    }
-
-    pub fn forward(
-        &self,
-        input_ids: &Tensor,
-        token_type_ids: &Tensor,
-        attention_mask: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let sequence_output = self
-            .bert
-            .forward(input_ids, token_type_ids, attention_mask)?;
-        self.cls.forward(&sequence_output)
-    }
 }
