@@ -25,7 +25,7 @@ sentence-transformers/paraphrase-multilingual-mpnet-base-v2
 time:   [111.21 ms 113.64 ms 116.26 ms]
 
 sentence-transformers/distiluse-base-multilingual-cased-v2
-time:   [61.013 ms 62.242 ms 63.614 ms]
+time:   [57.004 ms 58.444 ms 59.947 ms]
 
 BAAI/bge-small-en-v1.5
 time:   [274.06 ms 277.56 ms 281.81 ms]

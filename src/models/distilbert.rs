@@ -1,6 +1,6 @@
 //! Adapted from Candle (Apache-2.0, MIT License, https://github.com/huggingface/candle/blob/main/candle-transformers/src/models/distilbert.rs)
 
-use candle_core::{DType, Device, Result, Tensor};
+use candle_core::{DType, Device, Result, Tensor, D};
 use candle_nn::{layer_norm, linear, Embedding, LayerNorm, Linear, Module, VarBuilder};
 use serde::Deserialize;
 
@@ -68,12 +68,11 @@ impl Embeddings {
 }
 
 struct MultiHeadSelfAttention {
-    q_lin: Linear,
-    k_lin: Linear,
-    v_lin: Linear,
+    qkv: Linear,
     out_lin: Linear,
     n_heads: usize,
     attention_head_size: usize,
+    softmax_scale: f64,
 }
 
 impl MultiHeadSelfAttention {
@@ -81,56 +80,61 @@ impl MultiHeadSelfAttention {
         let attention_head_size = config.dim / config.n_heads;
         let all_head_size = config.n_heads * attention_head_size;
         let dim = config.dim;
-        let q_lin = linear(dim, all_head_size, vb.pp("q_lin"))?;
-        let v_lin = linear(dim, all_head_size, vb.pp("v_lin"))?;
-        let k_lin = linear(dim, all_head_size, vb.pp("k_lin"))?;
+
+        let query_weight = vb.pp("q_lin").get((all_head_size, dim), "weight")?;
+        let query_bias = vb.pp("q_lin").get(all_head_size, "bias")?;
+
+        let key_weight = vb.pp("k_lin").get((all_head_size, dim), "weight")?;
+        let key_bias = vb.pp("k_lin").get(all_head_size, "bias")?;
+
+        let value_weight = vb.pp("v_lin").get((all_head_size, dim), "weight")?;
+        let value_bias = vb.pp("v_lin").get(all_head_size, "bias")?;
+
+        let qkv_weight = Tensor::cat(&[&query_weight, &key_weight, &value_weight], 0)?;
+        let qkv_bias = Tensor::cat(&[&query_bias, &key_bias, &value_bias], 0)?;
+
+        let qkv = Linear::new(qkv_weight, Some(qkv_bias));
+
+        let softmax_scale = 1.0 / ((config.dim / config.n_heads) as f64).sqrt();
+
         let out_lin = linear(all_head_size, dim, vb.pp("out_lin"))?;
         Ok(Self {
-            q_lin,
-            k_lin,
-            v_lin,
+            qkv,
             out_lin,
             n_heads: config.n_heads,
             attention_head_size,
+            softmax_scale: softmax_scale,
         })
     }
 }
 
 impl MultiHeadSelfAttention {
     fn forward(&self, hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
-        let (bs, q_length, _dim) = hidden_states.dims3()?;
+        let qkv = self.qkv.forward(&hidden_states)?;
 
-        let dim_per_head = self.attention_head_size;
-        let q = self.q_lin.forward(hidden_states)?;
-        let k = self.k_lin.forward(hidden_states)?;
-        let v = self.v_lin.forward(hidden_states)?;
+        let mut new_qkv_shape = qkv.dims().to_vec();
+        new_qkv_shape.pop();
+        new_qkv_shape.push(self.n_heads * 3);
+        new_qkv_shape.push(self.attention_head_size);
+        let qkv = qkv.reshape(new_qkv_shape.as_slice())?.transpose(1, 2)?;
 
-        let q = q
-            .reshape((bs, q_length, self.n_heads, dim_per_head))?
-            .transpose(1, 2)?;
-        let k = k
-            .reshape((bs, q_length, self.n_heads, dim_per_head))?
-            .transpose(1, 2)?;
-        let v = v
-            .reshape((bs, q_length, self.n_heads, dim_per_head))?
-            .transpose(1, 2)?;
+        let qkv = qkv.chunk(3, 1)?;
+        let query = &qkv[0].contiguous()?;
+        let key = &qkv[1].contiguous()?;
+        let value = &qkv[2].contiguous()?;
 
-        let q: Tensor = (q / (dim_per_head as f64).sqrt())?;
-        let scores = q.matmul(&k.transpose(2, 3)?.contiguous()?)?;
-        let mask = attention_mask.broadcast_as(scores.shape())?;
+        let attention_scores = query.matmul(&key.t()?)?;
+        let attention_scores = (attention_scores * self.softmax_scale)?;
+        let attention_scores = attention_scores.broadcast_add(attention_mask)?;
 
-        // let scores = masked_fill(&scores.to_dtype(DType::F32)?, &mask, f32::NEG_INFINITY)?;
-        let scores = (mask + &scores.to_dtype(DType::F32)?)?;
-        let weights = candle_nn::ops::softmax(&scores, candle_core::D::Minus1)?;
+        let attention_probs = candle_nn::ops::softmax_last_dim(&attention_scores)?;
 
-        let context = weights.matmul(&v.contiguous()?)?;
-        let context = context
-            .transpose(1, 2)?
-            .reshape((bs, q_length, self.n_heads * dim_per_head))?
-            .contiguous()?;
-        let context = self.out_lin.forward(&context)?;
+        let context_layer = attention_probs.matmul(&value)?;
+        let context_layer = context_layer.transpose(1, 2)?.flatten_from(D::Minus2)?;
 
-        Ok(context)
+        let context_layer = self.out_lin.forward(&context_layer)?;
+
+        Ok(context_layer)
     }
 }
 
@@ -267,110 +271,6 @@ impl DistilBertModel {
             .transformer
             .forward(&embedding_output, &attention_mask)?;
         Ok(sequence_output)
-    }
-}
-
-struct DistilBertPredictionHeadTransform {
-    dense: Linear,
-    activation: Activation,
-    layer_norm: LayerNorm,
-}
-
-impl DistilBertPredictionHeadTransform {
-    fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let dense = linear(config.dim, config.dim, vb.pp("vocab_transform"))?;
-        let activation = config.activation.clone();
-        let layer_norm = layer_norm(config.dim, 1e-12, vb.pp("vocab_layer_norm"))?;
-        Ok(Self {
-            dense,
-            activation,
-            layer_norm,
-        })
-    }
-}
-
-impl Module for DistilBertPredictionHeadTransform {
-    fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
-        let hidden_states = self
-            .activation
-            .forward(&self.dense.forward(hidden_states)?)?;
-        self.layer_norm.forward(&hidden_states)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/1bd604d11c405dfb8b78bda4062d88fc75c17de0/src/transformers/models/bert/modeling_bert.py#L769C1-L790C1
-pub struct DistilBertLMPredictionHead {
-    transform: DistilBertPredictionHeadTransform,
-    decoder: Linear,
-}
-
-impl DistilBertLMPredictionHead {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let transform = DistilBertPredictionHeadTransform::load(vb.clone(), config)?;
-
-        // distil_bert_uncased uses the word embeddings for the vocab projector weight, but has a separate vocab_projector bias
-        let vocab_projector_weight_vb = vb.pp("distilbert.embeddings.word_embeddings");
-        let init_ws = candle_nn::init::DEFAULT_KAIMING_NORMAL;
-        let ws = vocab_projector_weight_vb.get_with_hints(
-            (config.vocab_size, config.dim),
-            "weight",
-            init_ws,
-        )?;
-        let bound = 1. / (config.dim as f64).sqrt();
-        let init_bs = candle_nn::Init::Uniform {
-            lo: -bound,
-            up: bound,
-        };
-
-        let vocab_projector_bias_vb = vb.pp("vocab_projector");
-        let bs = vocab_projector_bias_vb.get_with_hints(config.vocab_size, "bias", init_bs)?;
-
-        let decoder = Linear::new(ws, Some(bs));
-
-        Ok(Self { transform, decoder })
-    }
-}
-
-impl Module for DistilBertLMPredictionHead {
-    fn forward(&self, hidden_states: &Tensor) -> Result<Tensor> {
-        self.decoder
-            .forward(&self.transform.forward(hidden_states)?)
-    }
-}
-
-// https://github.com/huggingface/transformers/blob/1bd604d11c405dfb8b78bda4062d88fc75c17de0/src/transformers/models/bert/modeling_bert.py#L792
-pub struct DistilBertOnlyMLMHead {
-    predictions: DistilBertLMPredictionHead,
-}
-
-impl DistilBertOnlyMLMHead {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let predictions = DistilBertLMPredictionHead::load(vb.clone(), config)?;
-        Ok(Self { predictions })
-    }
-}
-
-impl Module for DistilBertOnlyMLMHead {
-    fn forward(&self, sequence_output: &Tensor) -> Result<Tensor> {
-        self.predictions.forward(sequence_output)
-    }
-}
-
-pub struct DistilBertForMaskedLM {
-    pub bert: DistilBertModel,
-    cls: DistilBertOnlyMLMHead,
-}
-
-impl DistilBertForMaskedLM {
-    pub fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
-        let bert = DistilBertModel::load(vb.pp("distilbert"), config)?;
-        let cls = DistilBertOnlyMLMHead::load(vb.clone(), config)?;
-        Ok(Self { bert, cls })
-    }
-
-    pub fn forward(&self, input_ids: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
-        let sequence_output = self.bert.forward(input_ids, attention_mask)?;
-        self.cls.forward(&sequence_output)
     }
 }
 
