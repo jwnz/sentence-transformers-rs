@@ -4,34 +4,7 @@ use candle_core::{DType, Device, Result, Tensor};
 use candle_nn::{layer_norm, linear, Embedding, LayerNorm, Linear, Module, VarBuilder};
 use serde::Deserialize;
 
-pub const DTYPE: DType = DType::F32;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HiddenAct {
-    Gelu,
-    Relu,
-}
-
-struct HiddenActLayer {
-    act: HiddenAct,
-}
-
-impl HiddenActLayer {
-    fn new(act: HiddenAct) -> Self {
-        Self { act }
-    }
-}
-
-impl Module for HiddenActLayer {
-    fn forward(&self, xs: &Tensor) -> candle_core::Result<Tensor> {
-        match self.act {
-            // https://github.com/huggingface/transformers/blob/cd4584e3c809bb9e1392ccd3fe38b40daba5519a/src/transformers/activations.py#L213
-            HiddenAct::Gelu => xs.gelu(),
-            HiddenAct::Relu => xs.relu(),
-        }
-    }
-}
+use crate::activation::Activation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -47,7 +20,7 @@ pub struct Config {
     n_layers: usize,
     n_heads: usize,
     hidden_dim: usize,
-    activation: HiddenAct,
+    activation: Activation,
     max_position_embeddings: usize,
     initializer_range: f64,
     pub pad_token_id: usize,
@@ -56,25 +29,6 @@ pub struct Config {
     #[serde(default)]
     use_cache: bool,
     model_type: Option<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            vocab_size: 30522,
-            dim: 768,
-            n_layers: 12,
-            n_heads: 12,
-            hidden_dim: 3072,
-            activation: HiddenAct::Gelu,
-            max_position_embeddings: 512,
-            initializer_range: 0.02,
-            pad_token_id: 0,
-            position_embedding_type: PositionEmbeddingType::Absolute,
-            use_cache: true,
-            model_type: Some("distilbert".to_string()),
-        }
-    }
 }
 
 struct Embeddings {
@@ -184,7 +138,7 @@ impl MultiHeadSelfAttention {
 struct FFN {
     lin1: Linear,
     lin2: Linear,
-    activation: HiddenActLayer,
+    activation: Activation,
 }
 
 impl FFN {
@@ -194,7 +148,7 @@ impl FFN {
         Ok(Self {
             lin1,
             lin2,
-            activation: HiddenActLayer::new(config.activation),
+            activation: config.activation.clone(),
         })
     }
 }
@@ -318,14 +272,14 @@ impl DistilBertModel {
 
 struct DistilBertPredictionHeadTransform {
     dense: Linear,
-    activation: HiddenActLayer,
+    activation: Activation,
     layer_norm: LayerNorm,
 }
 
 impl DistilBertPredictionHeadTransform {
     fn load(vb: VarBuilder, config: &Config) -> Result<Self> {
         let dense = linear(config.dim, config.dim, vb.pp("vocab_transform"))?;
-        let activation = HiddenActLayer::new(config.activation);
+        let activation = config.activation.clone();
         let layer_norm = layer_norm(config.dim, 1e-12, vb.pp("vocab_layer_norm"))?;
         Ok(Self {
             dense,

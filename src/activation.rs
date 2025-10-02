@@ -1,4 +1,4 @@
-use candle_core::Tensor;
+use candle_core::{Module, Tensor};
 use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Deserialize, Clone, Copy)]
@@ -18,8 +18,8 @@ pub enum Activation {
     Relu,
 }
 
-impl Activation {
-    pub fn forward(&self, xs: &Tensor) -> Result<Tensor, candle_core::error::Error> {
+impl Module for Activation {
+    fn forward(&self, xs: &Tensor) -> Result<Tensor, candle_core::error::Error> {
         let xs = match self {
             Activation::Tanh => xs.tanh()?,
             Activation::Identity => xs.clone(),
